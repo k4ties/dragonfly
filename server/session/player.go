@@ -1,4 +1,4 @@
-epackage session
+package session
 
 import (
 	"encoding/json"
