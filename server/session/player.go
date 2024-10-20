@@ -770,11 +770,16 @@ func (s *Session) SendExperience(e *entity.ExperienceManager) {
 
 // RawConn ...
 func (s *Session) RawConn() (*minecraft.Conn, error) {
-      if rawconn, err := s.conn.(*minecraft.Conn); err != nil {
+      if rawconn, err := SessionConn().(*minecraft.Conn); err != nil {
                 return &minecraft.Conn{}, err  
       }
 	
       return rawconn, nil
+}
+
+// SessionConn ...
+func (s *Session) SessionConn() Conn {
+	return s.conn // 🙀
 }
 
 // stackFromItem converts an item.Stack to its network ItemStack representation.
