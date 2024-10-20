@@ -1,4 +1,4 @@
-package session
+epackage session
 
 import (
 	"encoding/json"
@@ -16,6 +16,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"math"
@@ -765,6 +766,15 @@ func (s *Session) SendExperience(e *entity.ExperienceManager) {
 			},
 		},
 	})
+}
+
+// RawConn ...
+func (s *Session) RawConn() (*minecraft.Conn, error) {
+      if rawconn, err := s.conn.(*minecraft.Conn); err != nil {
+                return &minecraft.Conn{}, err  
+      }
+	
+      return rawconn, nil
 }
 
 // stackFromItem converts an item.Stack to its network ItemStack representation.
