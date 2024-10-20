@@ -35,6 +35,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/text/language"
 	"sync/atomic"
+        "github.com/sandertv/gophertunnel/minecraft"
 )
 
 // Player is an implementation of a player entity. It has methods that implement the behaviour that players
@@ -3038,6 +3039,11 @@ func (p *Player) resendBlock(pos cube.Pos, w *world.World) {
 			p.session().ViewBlockUpdate(pos, liq, 1)
 		}
 	}
+}
+
+// Conn ...
+func (p *Player) Conn() (*minecraft.Conn, error) {
+	return p.session().RawConn()
 }
 
 // format is a utility function to format a list of values to have spaces between them, but no newline at the
