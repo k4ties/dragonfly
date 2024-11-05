@@ -769,9 +769,9 @@ func (s *Session) SendExperience(e *entity.ExperienceManager) {
 }
 
 // RawConn ...
-func (s *Session) RawConn() (*minecraft.Conn, error) {
+func (s *Session) RawConn() (*minecraft.Conn, bool) {
       if rawconn, ok := s.SessionConn().(*minecraft.Conn); !ok {
-                return nil, err  
+                return nil, ok  
       } else {
 	      return rawconn, nil
       }
