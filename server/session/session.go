@@ -506,7 +506,7 @@ func (s *Session) writePacket(pk packet.Packet) {
 
 // WritePacket ...
 func (s *Session) WritePacket(pk packet.Packet) {
-	_ = s.writePacket(pk)
+	s.writePacket(pk)
 }
 
 // initPlayerList initialises the player list of the session and sends the session itself to all other
