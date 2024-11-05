@@ -3053,7 +3053,7 @@ func (p *Player) resendBlock(pos cube.Pos, w *world.World) {
 }
 
 // Conn ...
-func (p *Player) Conn() (*minecraft.Conn, error) {
+func (p *Player) Conn() (*minecraft.Conn, bool) {
 	return p.session().RawConn()
 }
 
