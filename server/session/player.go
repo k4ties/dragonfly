@@ -773,7 +773,7 @@ func (s *Session) RawConn() (*minecraft.Conn, bool) {
       if rawconn, ok := s.SessionConn().(*minecraft.Conn); !ok {
                 return nil, ok  
       } else {
-	      return rawconn, nil
+	      return rawconn, ok
       }
 }	
 
