@@ -2366,6 +2366,8 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 	if p.Dead() {
 		return
 	}
+	p.Handler().HandleTick(p, current)
+
 	if _, ok := p.tx.Liquid(cube.PosFromVec3(p.Position())); !ok {
 		p.StopSwimming()
 		if _, ok := p.Armour().Helmet().Item().(item.TurtleShell); ok {
