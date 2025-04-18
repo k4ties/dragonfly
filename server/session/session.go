@@ -66,6 +66,8 @@ type Session struct {
 
 	breakingPos cube.Pos
 
+	handler atomic.Pointer[Handler]
+
 	inTransaction, containerOpened atomic.Bool
 	openedWindowID                 atomic.Uint32
 	openedContainerID              atomic.Uint32
@@ -131,6 +133,8 @@ type Config struct {
 
 	MaxChunkRadius int
 
+	Handler Handler
+
 	JoinMessage, QuitMessage chat.Translation
 
 	HandleStop func(*world.Tx, Controllable)
@@ -145,9 +149,19 @@ func (conf Config) New(conn Conn) *Session {
 	if conf.Log == nil {
 		conf.Log = slog.Default()
 	}
-	conf.Log = conf.Log.With("name", conn.IdentityData().DisplayName, "uuid", conn.IdentityData().Identity, "raddr", conn.RemoteAddr().String())
+	if conf.Handler == nil {
+		conf.Handler = nopHandler{}
+	}
 
 	s := &Session{}
+	conn = &connWrapper{
+		Conn:    conn,
+		session: s,
+		get:     s.Handler,
+	}
+
+	conf.Log = conf.Log.With("name", conn.IdentityData().DisplayName, "uuid", conn.IdentityData().Identity, "raddr", conn.RemoteAddr().String())
+
 	*s = Session{
 		openChunkTransactions:  make([]map[uint64]struct{}, 0, 8),
 		closeBackground:        make(chan struct{}),
@@ -158,12 +172,14 @@ func (conf Config) New(conn Conn) *Session {
 		blobs:                  map[uint64][]byte{},
 		chunkRadius:            int32(r),
 		maxChunkRadius:         int32(conf.MaxChunkRadius),
-		conn:                   conn,
 		currentEntityRuntimeID: 1,
+		conn:                   conn,
 		heldSlot:               new(uint32),
 		recipes:                make(map[uint32]recipe.Recipe),
 		conf:                   conf,
 	}
+
+	s.handler.Store(&conf.Handler)
 	s.openedWindow.Store(inventory.New(1, nil))
 	s.openedPos.Store(&cube.Pos{})
 
@@ -496,6 +512,24 @@ func (s *Session) registerHandlers() {
 		packet.IDServerBoundLoadingScreen:  &ServerBoundLoadingScreenHandler{},
 		packet.IDServerBoundDiagnostics:    &ServerBoundDiagnosticsHandler{},
 	}
+}
+
+// Handler returns current Session global packet handler.
+func (s *Session) Handler() Handler {
+	h := s.handler.Load()
+	if h == nil {
+		return nil
+	}
+	return *h
+}
+
+// Handle resets current global packet handler to the specified in this function.
+func (s *Session) Handle(new Handler) {
+	h := s.handler.Load()
+	if h == &new {
+		return
+	}
+	s.handler.Store(&new)
 }
 
 // writePacket writes a packet to the session's connection if it is not Nop.
