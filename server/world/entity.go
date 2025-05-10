@@ -123,6 +123,11 @@ func (e *EntityHandle) Entity(tx *Tx) (Entity, bool) {
 	return e.t.Open(tx, e, &e.data), true
 }
 
+// Data ...
+func (e *EntityHandle) Data() EntityData {
+	return e.data
+}
+
 // mustEntity calls Entity but panics if the worlds do not match.
 func (e *EntityHandle) mustEntity(tx *Tx) Entity {
 	if ent, ok := e.Entity(tx); ok {
