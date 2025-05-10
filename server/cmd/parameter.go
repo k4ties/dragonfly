@@ -56,6 +56,14 @@ type Optional[T any] struct {
 	set bool
 }
 
+// UpdateValue ...
+func (o Optional[T]) UpdateValue(val T) {
+	if !o.set {
+		o.val = val
+		o.set = true
+	}
+}
+
 // Load returns the value specified upon executing the command and a bool that is true if the parameter was filled out
 // by the Source.
 func (o Optional[T]) Load() (T, bool) {
