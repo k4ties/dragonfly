@@ -108,6 +108,11 @@ func entityFromData(t EntityType, id int64, data map[string]any) *EntityHandle {
 	return handle
 }
 
+// Data ...
+func (e *EntityHandle) Data() EntityData {
+	return e.data
+}
+
 // Type returns the EntityType of the EntityHandle.
 func (e *EntityHandle) Type() EntityType {
 	return e.t
