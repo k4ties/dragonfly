@@ -56,11 +56,11 @@ type Optional[T any] struct {
 	set bool
 }
 
-// UpdateValue ...
-func (o Optional[T]) UpdateValue(val T) {
-	if !o.set {
-		o.val = val
-		o.set = true
+// UpdateOptionalVal ...
+func UpdateOptionalVal[T any](opt *Optional[T], val T) {
+	if !opt.set {
+		opt.val = val
+		opt.set = true
 	}
 }
 
