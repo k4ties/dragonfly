@@ -36,6 +36,10 @@ func (e *Ent) H() *world.EntityHandle {
 	return e.handle
 }
 
+func (e *Ent) Tx() *world.Tx {
+	return e.tx
+}
+
 func (e *Ent) Behaviour() Behaviour {
 	return e.data.Data.(Behaviour)
 }

@@ -309,6 +309,8 @@ type Entity interface {
 	io.Closer
 	// H returns the EntityHandle that points to the entity.
 	H() *EntityHandle
+	// Tx should return current entity Tx.
+	Tx() *Tx
 	// Position returns the current position of the Entity in the world.
 	Position() mgl64.Vec3
 	// Rotation returns the yaw (horizontal rotation) and pitch (vertical
