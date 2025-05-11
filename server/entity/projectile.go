@@ -80,6 +80,9 @@ type ProjectileBehaviourConfig struct {
 	// CollisionPosition specifies the position that the projectile is stuck
 	// in. If non-empty, the entity will not move.
 	CollisionPosition cube.Pos
+	// EntityFilter is used to allow user keep entities, that he wants. This
+	// filter will not affect to current filter that ignores odd entities.
+	EntityFilter trace.EntityFilter
 }
 
 func (conf ProjectileBehaviourConfig) Apply(data *world.EntityData) {
@@ -300,7 +303,7 @@ func (lt *ProjectileBehaviour) tickMovement(e *Ent, tx *world.Tx) (*Movement, tr
 		ok  bool
 	)
 	if !mgl64.FloatEqual(end.Sub(pos).LenSqr(), 0) {
-		if hit, ok = trace.Perform(pos, end, tx, e.H().Type().BBox(e).Grow(1.0), lt.ignores(e)); ok {
+		if hit, ok = trace.Perform(pos, end, tx, e.H().Type().BBox(e).Grow(1.0), lt.ignores(e, lt.conf.EntityFilter)); ok {
 			if _, ok := hit.(trace.BlockResult); ok {
 				// Undo the gravity because the velocity as a result of gravity
 				// at the point of collision should be 0.
@@ -324,8 +327,12 @@ func (lt *ProjectileBehaviour) tickMovement(e *Ent, tx *world.Tx) (*Movement, tr
 // ignores returns a function to ignore entities in trace.Perform that are
 // either a spectator, not living, the entity itself or its owner in the first
 // 5 ticks.
-func (lt *ProjectileBehaviour) ignores(e *Ent) trace.EntityFilter {
+func (lt *ProjectileBehaviour) ignores(e *Ent, filter trace.EntityFilter) trace.EntityFilter {
 	return func(seq iter.Seq[world.Entity]) iter.Seq[world.Entity] {
+		filtered := seq
+		if filter != nil {
+			filtered = filter(seq)
+		}
 		return func(yield func(world.Entity) bool) {
 			for other := range seq {
 				g, ok := other.(interface{ GameMode() world.GameMode })
@@ -333,10 +340,23 @@ func (lt *ProjectileBehaviour) ignores(e *Ent) trace.EntityFilter {
 				if (ok && !g.GameMode().HasCollision()) || e.H() == other.H() || !living || (e.data.Age < time.Second/4 && lt.conf.Owner == other.H()) {
 					continue
 				}
+				if !iterContains(filtered, other) {
+					return
+				}
 				if !yield(other) {
 					return
 				}
 			}
 		}
 	}
+}
+
+// iterContains returns true if iterator contains T item.
+func iterContains[T comparable](iterator iter.Seq[T], val T) bool {
+	for v := range iterator {
+		if v == val {
+			return true
+		}
+	}
+	return false
 }
