@@ -173,8 +173,10 @@ func (lt *ProjectileBehaviour) Tick(e *Ent, tx *world.Tx) *Movement {
 	switch r := result.(type) {
 	case trace.EntityResult:
 		ent := r.Entity()
-		if ent != nil && !lt.conf.Allower(ent, &lt.conf) {
-			return m
+		if ent != nil {
+			if lt.conf.Allower != nil && !lt.conf.Allower(ent, &lt.conf) {
+				return m
+			}
 		}
 		if l, ok := ent.(Living); ok && lt.conf.Damage >= 0 {
 			lt.hitEntity(l, e, vel)
