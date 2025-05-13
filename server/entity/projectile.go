@@ -172,7 +172,11 @@ func (lt *ProjectileBehaviour) Tick(e *Ent, tx *world.Tx) *Movement {
 
 	switch r := result.(type) {
 	case trace.EntityResult:
-		if l, ok := r.Entity().(Living); ok && lt.conf.Damage >= 0 {
+		ent := r.Entity()
+		if !lt.conf.Allower(ent, &lt.conf) {
+			return m
+		}
+		if l, ok := ent.(Living); ok && lt.conf.Damage >= 0 {
 			lt.hitEntity(l, e, vel)
 		}
 	case trace.BlockResult:
@@ -304,7 +308,7 @@ func (lt *ProjectileBehaviour) tickMovement(e *Ent, tx *world.Tx) (*Movement, tr
 		ok  bool
 	)
 	if !mgl64.FloatEqual(end.Sub(pos).LenSqr(), 0) {
-		if hit, ok = trace.Perform(pos, end, tx, e.H().Type().BBox(e).Grow(1.0), lt.ignores(e, lt.conf.Allower)); ok {
+		if hit, ok = trace.Perform(pos, end, tx, e.H().Type().BBox(e).Grow(1.0), lt.ignores(e)); ok {
 			if _, ok := hit.(trace.BlockResult); ok {
 				// Undo the gravity because the velocity as a result of gravity
 				// at the point of collision should be 0.
@@ -328,7 +332,7 @@ func (lt *ProjectileBehaviour) tickMovement(e *Ent, tx *world.Tx) (*Movement, tr
 // ignores returns a function to ignore entities in trace.Perform that are
 // either a spectator, not living, the entity itself or its owner in the first
 // 5 ticks.
-func (lt *ProjectileBehaviour) ignores(e *Ent, allower ProjectileIntersectAllower) trace.EntityFilter {
+func (lt *ProjectileBehaviour) ignores(e *Ent) trace.EntityFilter {
 	return func(seq iter.Seq[world.Entity]) iter.Seq[world.Entity] {
 		return func(yield func(world.Entity) bool) {
 			for other := range seq {
@@ -336,9 +340,6 @@ func (lt *ProjectileBehaviour) ignores(e *Ent, allower ProjectileIntersectAllowe
 				_, living := other.(Living)
 				if (ok && !g.GameMode().HasCollision()) || e.H() == other.H() || !living || (e.data.Age < time.Second/4 && lt.conf.Owner == other.H()) {
 					continue
-				}
-				if allower != nil && !allower(other, &lt.conf) {
-					return
 				}
 				if !yield(other) {
 					return
