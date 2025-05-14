@@ -5,16 +5,16 @@ import (
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/sasha-s/go-deadlock"
 	"math"
 	"math/rand/v2"
-	"sync"
 	"time"
 )
 
 // smelter is a struct that may be embedded by blocks that can smelt blocks and items, such as blast furnaces, furnaces,
 // and smokers.
 type smelter struct {
-	mu sync.Mutex
+	mu deadlock.Mutex
 
 	viewers   map[ContainerViewer]struct{}
 	inventory *inventory.Inventory

@@ -7,13 +7,13 @@ import (
 	"github.com/df-mc/dragonfly/server/item/recipe"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/sound"
-	"sync"
+	"github.com/sasha-s/go-deadlock"
 	"time"
 )
 
 // brewer is a struct that may be embedded by blocks that can brew potions, such as brewing stands.
 type brewer struct {
-	mu sync.Mutex
+	mu deadlock.Mutex
 
 	viewers   map[ContainerViewer]struct{}
 	inventory *inventory.Inventory

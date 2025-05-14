@@ -9,8 +9,8 @@ import (
 	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/sasha-s/go-deadlock"
 	"strings"
-	"sync"
 )
 
 // Hopper is a low-capacity storage block that can be used to collect item entities directly above it, as well as to
@@ -36,13 +36,13 @@ type Hopper struct {
 	CollectCooldown int64
 
 	inventory *inventory.Inventory
-	viewerMu  *sync.RWMutex
+	viewerMu  *deadlock.RWMutex
 	viewers   map[ContainerViewer]struct{}
 }
 
 // NewHopper creates a new initialised hopper. The inventory is properly initialised.
 func NewHopper() Hopper {
-	m := new(sync.RWMutex)
+	m := new(deadlock.RWMutex)
 	v := make(map[ContainerViewer]struct{}, 1)
 	return Hopper{
 		inventory: inventory.New(5, func(slot int, _, item item.Stack) {

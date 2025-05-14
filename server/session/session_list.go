@@ -6,14 +6,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"github.com/sasha-s/go-deadlock"
 	"slices"
-	"sync"
 )
 
 var sessions = new(sessionList)
 
 type sessionList struct {
-	mu sync.Mutex
+	mu deadlock.Mutex
 	s  []*Session
 }
 

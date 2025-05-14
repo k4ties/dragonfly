@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/df-mc/dragonfly/server/item"
+	"github.com/sasha-s/go-deadlock"
 	"math"
 	"slices"
 	"strings"
-	"sync"
 )
 
 // Inventory represents an inventory containing items. These inventories may be carried by entities or may be
@@ -16,7 +16,7 @@ import (
 // an inventory is invalid. Use New() to obtain a new inventory.
 // Inventory is safe for concurrent usage: Its values are protected by a mutex.
 type Inventory struct {
-	mu    sync.RWMutex
+	mu    deadlock.RWMutex
 	h     Handler
 	slots []item.Stack
 

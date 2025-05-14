@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/sasha-s/go-deadlock"
 	"io"
 	"log/slog"
 	"net"
@@ -47,7 +48,7 @@ type Session struct {
 
 	teleportPos atomic.Pointer[mgl64.Vec3]
 
-	entityMutex sync.RWMutex
+	entityMutex deadlock.RWMutex
 	// currentEntityRuntimeID holds the runtime ID assigned to the last entity. It is incremented for every
 	// entity spawned to the session.
 	currentEntityRuntimeID uint64
@@ -80,7 +81,7 @@ type Session struct {
 
 	recipes map[uint32]recipe.Recipe
 
-	blobMu                sync.Mutex
+	blobMu                deadlock.Mutex
 	blobs                 map[uint64][]byte
 	openChunkTransactions []map[uint64]struct{}
 	invOpened             bool

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
+	"github.com/sasha-s/go-deadlock"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -102,6 +103,8 @@ type Config struct {
 	// may be added to the Server's worlds. If no entity types are registered,
 	// Entities will be set to entity.DefaultRegistry.
 	Entities world.EntityRegistry
+	// DeadlockEnabled ...
+	DeadlockEnabled bool
 }
 
 // New creates a Server using fields of conf. The Server's worlds are created
@@ -110,6 +113,9 @@ type Config struct {
 func (conf Config) New() *Server {
 	if conf.Log == nil {
 		conf.Log = slog.Default()
+	}
+	if conf.DeadlockEnabled {
+		deadlock.Opts.Disable = false
 	}
 	if len(conf.Listeners) == 0 {
 		conf.Log.Warn("config: no listeners set, no connections will be accepted")
@@ -323,6 +329,10 @@ func DefaultConfig() UserConfig {
 	c.Resources.Folder = "resources"
 	c.Resources.Required = false
 	return c
+}
+
+func init() {
+	deadlock.Opts.Disable = true
 }
 
 // noinspection ALL

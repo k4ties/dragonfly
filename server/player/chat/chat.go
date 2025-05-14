@@ -2,7 +2,7 @@ package chat
 
 import (
 	"github.com/google/uuid"
-	"sync"
+	"github.com/sasha-s/go-deadlock"
 )
 
 // Global represents a global chat. Players will write in this chat by default
@@ -15,7 +15,7 @@ var Global = New()
 // implements the io.Writer and io.StringWriter interfaces. fmt.Fprintf and
 // fmt.Fprint may be used to write formatted messages to the chat.
 type Chat struct {
-	m           sync.Mutex
+	m           deadlock.Mutex
 	subscribers map[uuid.UUID]Subscriber
 }
 

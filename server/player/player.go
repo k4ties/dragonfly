@@ -2,9 +2,11 @@ package player
 
 import (
 	"fmt"
+	"github.com/sandertv/gophertunnel/minecraft/text"
 	"math"
 	"math/rand/v2"
 	"net"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -2361,8 +2363,36 @@ func (p *Player) Latency() time.Duration {
 	return p.session().Latency()
 }
 
+// bToMb converts n bytes to megabytes
+func bToMb(n uint64) float64 {
+	return float64(n) / 1024 / 1024
+}
+
 // Tick ticks the entity, performing actions such as checking if the player is still breaking a block.
 func (p *Player) Tick(tx *world.Tx, current int64) {
+	func() {
+		format := []string{
+			"Goroutines: <aqua>%d</aqua>",
+			"Memory heap alloc: <aqua>%.2f</aqua> MB",
+			"Sys: <aqua>%.2f</aqua> MB",
+			"Tick: <aqua>%d</aqua>",
+		}
+
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
+		goroutines := runtime.NumGoroutine()
+
+		formatted := strings.Join(format, "\n")
+		formatted = text.Colourf(formatted,
+			goroutines,
+			bToMb(m.Alloc),
+			bToMb(m.Sys),
+			current,
+		)
+		p.SendTip(formatted)
+	}()
+
 	if p.Dead() {
 		return
 	}
