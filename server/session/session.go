@@ -39,6 +39,9 @@ type Session struct {
 	handlers map[uint32]PacketHandler
 	packets  chan packet.Packet
 
+	userHandlers   map[uint32]PacketHandler
+	userHandlersMu sync.RWMutex
+
 	currentScoreboard atomic.Pointer[string]
 	currentLines      atomic.Pointer[[]string]
 
@@ -193,6 +196,21 @@ func (conf Config) New(conn Conn) *Session {
 		}
 	}()
 	return s
+}
+
+// HandlePacket ...
+func (s *Session) HandlePacket(id uint32, h PacketHandler) {
+	s.userHandlersMu.Lock()
+	s.userHandlers[id] = h
+	s.userHandlersMu.Unlock()
+}
+
+// Handler ...
+func (s *Session) Handler(id uint32) (PacketHandler, bool) {
+	s.userHandlersMu.RLock()
+	defer s.userHandlersMu.RUnlock()
+	h, ok := s.userHandlers[id]
+	return h, ok
 }
 
 // SetHandle sets the world.EntityHandle of the Session and attaches a skin to
@@ -457,6 +475,14 @@ func (s *Session) ChangingDimension() bool {
 // handlePacket handles an incoming packet, processing it accordingly. If the packet had invalid data or was
 // otherwise not valid in its context, an error is returned.
 func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (err error) {
+	if userHandler, ok := s.Handler(pk.ID()); ok {
+		err = userHandler.Handle(pk, s, tx, c)
+		if err != nil {
+			// Cancelled by user.
+			return nil
+		}
+	}
+
 	handler, ok := s.handlers[pk.ID()]
 	if !ok {
 		s.conf.Log.Debug("unhandled packet", "packet", fmt.Sprintf("%T", pk), "data", fmt.Sprintf("%+v", pk)[1:])
