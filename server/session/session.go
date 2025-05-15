@@ -40,7 +40,7 @@ type Session struct {
 	packets  chan packet.Packet
 
 	userHandlers   map[uint32]PacketHandler
-	userHandlersMu sync.RWMutex
+	userHandlersMu sync.Mutex
 
 	currentScoreboard atomic.Pointer[string]
 	currentLines      atomic.Pointer[[]string]
@@ -207,8 +207,8 @@ func (s *Session) HandlePacket(id uint32, h PacketHandler) {
 
 // Handler ...
 func (s *Session) Handler(id uint32) (PacketHandler, bool) {
-	s.userHandlersMu.RLock()
-	defer s.userHandlersMu.RUnlock()
+	s.userHandlersMu.Lock()
+	defer s.userHandlersMu.Unlock()
 	h, ok := s.userHandlers[id]
 	return h, ok
 }
@@ -500,7 +500,9 @@ func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (
 
 // registerHandlers registers all packet handlers found in the PacketHandler package.
 func (s *Session) registerHandlers() {
+	s.userHandlersMu.Lock()
 	s.userHandlers = map[uint32]PacketHandler{}
+	s.userHandlersMu.Unlock()
 	s.handlers = map[uint32]PacketHandler{
 		packet.IDActorEvent:                nil,
 		packet.IDAdventureSettings:         nil, // Deprecated, the client still sends this though.
