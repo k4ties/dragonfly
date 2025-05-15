@@ -36,7 +36,7 @@ type Session struct {
 
 	ent      *world.EntityHandle
 	conn     Conn
-	handlers map[uint32]packetHandler
+	handlers map[uint32]PacketHandler
 	packets  chan packet.Packet
 
 	currentScoreboard atomic.Pointer[string]
@@ -153,7 +153,7 @@ func (conf Config) New(conn Conn) *Session {
 	*s = Session{
 		openChunkTransactions:  make([]map[uint64]struct{}, 0, 8),
 		closeBackground:        make(chan struct{}),
-		handlers:               map[uint32]packetHandler{},
+		handlers:               map[uint32]PacketHandler{},
 		packets:                make(chan packet.Packet, 256),
 		entityRuntimeIDs:       map[*world.EntityHandle]uint64{},
 		entities:               map[uint64]*world.EntityHandle{},
@@ -472,9 +472,9 @@ func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (
 	return nil
 }
 
-// registerHandlers registers all packet handlers found in the packetHandler package.
+// registerHandlers registers all packet handlers found in the PacketHandler package.
 func (s *Session) registerHandlers() {
-	s.handlers = map[uint32]packetHandler{
+	s.handlers = map[uint32]PacketHandler{
 		packet.IDActorEvent:                nil,
 		packet.IDAdventureSettings:         nil, // Deprecated, the client still sends this though.
 		packet.IDAnimate:                   nil,
