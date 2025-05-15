@@ -500,6 +500,7 @@ func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (
 
 // registerHandlers registers all packet handlers found in the PacketHandler package.
 func (s *Session) registerHandlers() {
+	s.userHandlers = map[uint32]PacketHandler{}
 	s.handlers = map[uint32]PacketHandler{
 		packet.IDActorEvent:                nil,
 		packet.IDAdventureSettings:         nil, // Deprecated, the client still sends this though.
