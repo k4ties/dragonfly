@@ -151,6 +151,8 @@ type Handler interface {
 	// not sent by every client however, only those with the "Creator > Enable Client Diagnostics" setting
 	// enabled.
 	HandleDiagnostics(p *Player, d session.Diagnostics)
+	// HandleTick handles every player tick.
+	HandleTick(p *Player, current int64)
 }
 
 // NopHandler implements the Handler interface but does not execute any code when an event is called. The
@@ -197,3 +199,4 @@ func (NopHandler) HandleDeath(*Player, world.DamageSource, *bool)               
 func (NopHandler) HandleRespawn(*Player, *mgl64.Vec3, **world.World)                       {}
 func (NopHandler) HandleQuit(*Player)                                                      {}
 func (NopHandler) HandleDiagnostics(*Player, session.Diagnostics)                          {}
+func (NopHandler) HandleTick(*Player, int64)                                               {}
