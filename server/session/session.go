@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/event"
 	"io"
 	"log/slog"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,7 +41,7 @@ type Session struct {
 	handlers map[uint32]PacketHandler
 	packets  chan packet.Packet
 
-	userHandlers   map[uint32]PacketHandler
+	userHandlers   []UserPacketHandler
 	userHandlersMu sync.Mutex
 
 	currentScoreboard atomic.Pointer[string]
@@ -191,6 +193,14 @@ func (conf Config) New(conn Conn) *Session {
 			case <-s.closeBackground:
 				return
 			case pk := <-s.packets:
+				for _, h := range s.UserHandlers() {
+					ctx := event.C(s)
+					if h.HandleServerPacket(ctx, pk); ctx.Cancelled() {
+						// cancelled
+						continue
+					}
+				}
+
 				_ = conn.WritePacket(pk)
 			}
 		}
@@ -198,19 +208,18 @@ func (conf Config) New(conn Conn) *Session {
 	return s
 }
 
-// HandlePacket ...
-func (s *Session) HandlePacket(id uint32, h PacketHandler) {
-	s.userHandlersMu.Lock()
-	s.userHandlers[id] = h
-	s.userHandlersMu.Unlock()
-}
-
-// Handler ...
-func (s *Session) Handler(id uint32) (PacketHandler, bool) {
+// UserHandlers returns all Session UserPacketHandler's.
+func (s *Session) UserHandlers() []UserPacketHandler {
 	s.userHandlersMu.Lock()
 	defer s.userHandlersMu.Unlock()
-	h, ok := s.userHandlers[id]
-	return h, ok
+	return slices.Clone(s.userHandlers)
+}
+
+// Handle ...
+func (s *Session) Handle(h UserPacketHandler) {
+	s.userHandlersMu.Lock()
+	s.userHandlers = append(s.userHandlers, h)
+	s.userHandlersMu.Unlock()
 }
 
 // SetHandle sets the world.EntityHandle of the Session and attaches a skin to
@@ -475,9 +484,9 @@ func (s *Session) ChangingDimension() bool {
 // handlePacket handles an incoming packet, processing it accordingly. If the packet had invalid data or was
 // otherwise not valid in its context, an error is returned.
 func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (err error) {
-	if userHandler, ok := s.Handler(pk.ID()); ok {
-		err = userHandler.Handle(pk, s, tx, c)
-		if err != nil {
+	for _, userHandler := range s.UserHandlers() {
+		ctx := event.C(s)
+		if userHandler.HandleClientPacket(ctx, c, pk); ctx.Cancelled() {
 			// Cancelled by user.
 			return nil
 		}
@@ -501,7 +510,7 @@ func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (
 // registerHandlers registers all packet handlers found in the PacketHandler package.
 func (s *Session) registerHandlers() {
 	s.userHandlersMu.Lock()
-	s.userHandlers = map[uint32]PacketHandler{}
+	s.userHandlers = []UserPacketHandler{}
 	s.userHandlersMu.Unlock()
 	s.handlers = map[uint32]PacketHandler{
 		packet.IDActorEvent:                nil,
