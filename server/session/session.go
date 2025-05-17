@@ -193,15 +193,16 @@ func (conf Config) New(conn Conn) *Session {
 			case <-s.closeBackground:
 				return
 			case pk := <-s.packets:
+				ctx := event.C(s)
 				for _, h := range s.UserHandlers() {
-					ctx := event.C(s)
-					if h.HandleServerPacket(ctx, pk); ctx.Cancelled() {
-						// cancelled
-						continue
+					if ctx.Cancelled() {
+						// already cancelled, no need to handle
+						break
+					}
+					if h.HandleServerPacket(ctx, pk); !ctx.Cancelled() {
+						_ = conn.WritePacket(pk)
 					}
 				}
-
-				_ = conn.WritePacket(pk)
 			}
 		}
 	}()
