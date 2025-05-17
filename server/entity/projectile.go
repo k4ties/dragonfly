@@ -331,18 +331,11 @@ func (lt *ProjectileBehaviour) tickMovement(e *Ent, tx *world.Tx) (*Movement, tr
 // 5 ticks.
 func (lt *ProjectileBehaviour) ignores(e *Ent) trace.EntityFilter {
 	return func(seq iter.Seq[world.Entity]) iter.Seq[world.Entity] {
-		seq = func(yield func(world.Entity) bool) {
-			for ent := range seq {
-				if !lt.conf.Allower(ent, &lt.conf) {
-					continue
-				}
-				if !yield(ent) {
-					return
-				}
-			}
-		}
 		return func(yield func(world.Entity) bool) {
 			for other := range seq {
+				if !lt.conf.Allower(other, &lt.conf) {
+					continue
+				}
 				g, ok := other.(interface{ GameMode() world.GameMode })
 				_, living := other.(Living)
 				if (ok && (!g.GameMode().HasCollision() || !g.GameMode().Visible())) || e.H() == other.H() || !living || (e.data.Age < time.Second/4 && lt.conf.Owner == other.H()) {
