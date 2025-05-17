@@ -173,11 +173,6 @@ func (lt *ProjectileBehaviour) Tick(e *Ent, tx *world.Tx) *Movement {
 	switch r := result.(type) {
 	case trace.EntityResult:
 		ent := r.Entity()
-		if ent != nil {
-			if lt.conf.Allower != nil && !lt.conf.Allower(ent, &lt.conf) {
-				return m
-			}
-		}
 		if l, ok := ent.(Living); ok && lt.conf.Damage >= 0 {
 			lt.hitEntity(l, e, vel)
 		}
@@ -336,11 +331,21 @@ func (lt *ProjectileBehaviour) tickMovement(e *Ent, tx *world.Tx) (*Movement, tr
 // 5 ticks.
 func (lt *ProjectileBehaviour) ignores(e *Ent) trace.EntityFilter {
 	return func(seq iter.Seq[world.Entity]) iter.Seq[world.Entity] {
+		seq = func(yield func(world.Entity) bool) {
+			for ent := range seq {
+				if !lt.conf.Allower(ent, &lt.conf) {
+					continue
+				}
+				if !yield(ent) {
+					return
+				}
+			}
+		}
 		return func(yield func(world.Entity) bool) {
 			for other := range seq {
 				g, ok := other.(interface{ GameMode() world.GameMode })
 				_, living := other.(Living)
-				if (ok && !g.GameMode().HasCollision()) || e.H() == other.H() || !living || (e.data.Age < time.Second/4 && lt.conf.Owner == other.H()) {
+				if (ok && (!g.GameMode().HasCollision() || !g.GameMode().Visible())) || e.H() == other.H() || !living || (e.data.Age < time.Second/4 && lt.conf.Owner == other.H()) {
 					continue
 				}
 				if !yield(other) {
