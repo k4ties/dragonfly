@@ -4,16 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/player/debug"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
-	"github.com/df-mc/dragonfly/server/cmd"
 	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/item/recipe"
 	"github.com/df-mc/dragonfly/server/player/chat"
@@ -39,6 +40,9 @@ type Session struct {
 	conn     Conn
 	handlers map[uint32]packetHandler
 	packets  chan packet.Packet
+
+	userHandler   UserPacketHandler
+	userHandlerMu sync.Mutex
 
 	currentScoreboard atomic.Pointer[string]
 	currentLines      atomic.Pointer[[]string]
@@ -86,12 +90,12 @@ type Session struct {
 	openChunkTransactions []map[uint64]struct{}
 	invOpened             bool
 
+	closeBackground chan struct{}
+
 	debugShapesMu     sync.RWMutex
 	debugShapes       map[int]debug.Shape
 	debugShapesAdd    chan debug.Shape
 	debugShapesRemove chan int
-
-	closeBackground chan struct{}
 }
 
 // Conn represents a connection that packets are read from and written to by a Session. In addition, it holds some
@@ -172,6 +176,7 @@ func (conf Config) New(conn Conn) *Session {
 		heldSlot:               new(uint32),
 		recipes:                make(map[uint32]recipe.Recipe),
 		conf:                   conf,
+		userHandler:            NopUserHandler{},
 		debugShapes:            make(map[int]debug.Shape),
 		debugShapesAdd:         make(chan debug.Shape, 256),
 		debugShapesRemove:      make(chan int, 256),
@@ -197,11 +202,46 @@ func (conf Config) New(conn Conn) *Session {
 			case <-s.closeBackground:
 				return
 			case pk := <-s.packets:
+				if handler := s.UserHandler(); handler != nil {
+					ctx := event.C(s)
+					if s.UserHandler().HandleServerPacket(ctx, pk); ctx.Cancelled() {
+						continue
+					}
+				}
 				_ = conn.WritePacket(pk)
 			}
 		}
 	}()
 	return s
+}
+
+// EntityHandle returns session EntityHandle.
+func (s *Session) EntityHandle() *world.EntityHandle {
+	return s.ent
+}
+
+// Entities returns all saved Session entities.
+func (s *Session) Entities() map[uint64]*world.EntityHandle {
+	s.entityMutex.RLock()
+	defer s.entityMutex.RUnlock()
+	return maps.Clone(s.entities)
+}
+
+// UserHandler returns current Session UserPacketHandler.
+func (s *Session) UserHandler() UserPacketHandler {
+	s.userHandlerMu.Lock()
+	defer s.userHandlerMu.Unlock()
+	return s.userHandler
+}
+
+// Handle ...
+func (s *Session) Handle(h UserPacketHandler) {
+	s.userHandlerMu.Lock()
+	defer s.userHandlerMu.Unlock()
+	if h == nil {
+		h = NopUserHandler{}
+	}
+	s.userHandler = h
 }
 
 // SetHandle sets the world.EntityHandle of the Session and attaches a skin to
@@ -294,6 +334,10 @@ func (s *Session) close(tx *world.Tx, c Controllable) {
 	s.entityMutex.Unlock()
 }
 
+func (s *Session) ChunkLoader() *world.Loader {
+	return s.chunkLoader
+}
+
 // CloseConnection closes the underlying connection of the session so that the session ends up being closed
 // eventually.
 func (s *Session) CloseConnection() {
@@ -318,6 +362,11 @@ func (s *Session) ClientData() login.ClientData {
 	return s.conn.ClientData()
 }
 
+// IdentityData returns the login.IdentityData of the underlying *minecraft.Conn.
+func (s *Session) IdentityData() login.IdentityData {
+	return s.conn.IdentityData()
+}
+
 // handlePackets continuously handles incoming packets from the connection. It processes them accordingly.
 // Once the connection is closed, handlePackets will return.
 func (s *Session) handlePackets() {
@@ -335,14 +384,16 @@ func (s *Session) handlePackets() {
 		})
 	}()
 	for {
-		pk, err := s.conn.ReadPacket()
+		pk, err := s.ReadPacket()
 		if err != nil {
 			return
 		}
+
 		s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
 			err = s.handlePacket(pk, tx, e.(Controllable))
 		})
-		if err != nil {
+
+		if err != nil && !errors.Is(err, context.Canceled) {
 			s.conf.Log.Debug("process packet: " + err.Error())
 			return
 		}
@@ -352,44 +403,46 @@ func (s *Session) handlePackets() {
 // background performs background tasks of the Session. This includes chunk sending and automatic command updating.
 // background returns when the Session's connection is closed using CloseConnection.
 func (s *Session) background() {
-	var (
-		r          map[string]map[int]cmd.Runnable
-		enums      map[string]cmd.Enum
-		enumValues map[string][]string
-		ok         bool
-		i          int
-	)
-
 	s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
-		co := e.(Controllable)
-		r = s.sendAvailableCommands(co)
-		enums, enumValues = s.enums(co)
+		c := e.(Controllable)
+		s.ResendCommands(c)
 	})
+
+	var tick int
 
 	t := time.NewTicker(time.Second / 20)
 	defer t.Stop()
+
 	for {
 		select {
 		case <-t.C:
+			tick++
 			s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
 				c := e.(Controllable)
-
-				if i++; i%20 == 0 {
-					// Enum resending happens relatively often and frequent updates are more important than with full
-					// command changes. Those are generally only related to permission changes, which doesn't happen often.
-					s.resendEnums(enums, enumValues, c)
-				}
-				if i%100 == 0 {
-					// Try to resend commands only every 5 seconds.
-					if r, ok = s.resendCommands(r, c); ok {
-						enums, enumValues = s.enums(c)
-					}
-				}
 				s.sendChunks(tx, c)
+
+				if (tick % 70) == 0 { // Every 3.5 seconds
+					s.ResendCommands(c)
+				}
 			})
 		case <-s.closeBackground:
 			return
 		}
+	}
+}
+
+// ResendCommands will resend all server commands for a session.
+func (s *Session) ResendCommands(c Controllable) {
+	var (
+		r  = s.sendAvailableCommands(c)
+		ok bool
+		enums,
+		enumValues = s.enums(c)
+	)
+
+	s.resendEnums(enums, enumValues, c)
+	if r, ok = s.resendCommands(r, c); ok {
+		enums, enumValues = s.enums(c)
 	}
 }
 
@@ -430,7 +483,7 @@ func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable
 	if !same {
 		s.changeDimension(int32(dim), false, c)
 	}
-	s.ViewEntityTeleport(c, c.Position())
+	s.ViewEntityTeleport(c, c.Position(), c.Rotation())
 	s.chunkLoader.ChangeWorld(tx, w)
 }
 
@@ -481,7 +534,7 @@ func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (
 	return nil
 }
 
-// registerHandlers registers all packet handlers found in the packetHandler package.
+// registerHandlers registers all packet handlers found in the PacketHandler package.
 func (s *Session) registerHandlers() {
 	s.handlers = map[uint32]packetHandler{
 		packet.IDActorEvent:                nil,
@@ -529,6 +582,29 @@ func (s *Session) writePacket(pk packet.Packet) {
 	case s.packets <- pk:
 	case <-s.closeBackground:
 	}
+}
+
+// WritePacket is exported alias to writePacket.
+func (s *Session) WritePacket(pk packet.Packet) {
+	s.writePacket(pk)
+}
+
+// ReadPacket ...
+func (s *Session) ReadPacket() (packet.Packet, error) {
+	pk, err := s.conn.ReadPacket()
+	if err != nil {
+		return nil, err
+	}
+	ctx := event.C(s)
+	if s.UserHandler().HandleClientPacket(ctx, pk); ctx.Cancelled() {
+		return nil, context.Canceled
+	}
+	return pk, nil
+}
+
+// Conn ...
+func (s *Session) Conn() Conn {
+	return s.conn
 }
 
 // actorIdentifier represents the structure of an actor identifier sent over the network.

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"github.com/df-mc/dragonfly/server/entity/effect"
 	"image/color"
 	"math/rand/v2"
@@ -231,13 +232,13 @@ func (s *Session) ViewTime(time int) {
 }
 
 // ViewEntityTeleport ...
-func (s *Session) ViewEntityTeleport(e world.Entity, position mgl64.Vec3) {
+func (s *Session) ViewEntityTeleport(e world.Entity, position mgl64.Vec3, rot cube.Rotation) {
 	id := s.entityRuntimeID(e)
 	if s.entityHidden(e) {
 		return
 	}
 
-	yaw, pitch := e.Rotation().Elem()
+	yaw, pitch := rot.Elem()
 	if id == selfEntityRuntimeID {
 		s.teleportPos.Store(&position)
 	}
@@ -305,7 +306,7 @@ func (s *Session) ViewEntityArmour(e world.Entity) {
 
 	inv := armoured.Armour()
 
-	// Show the entity's armour
+	// Show the main hand item.
 	s.writePacket(&packet.MobArmourEquipment{
 		EntityRuntimeID: runtimeID,
 		Helmet:          instanceFromItem(inv.Helmet()),
@@ -458,6 +459,18 @@ func (s *Session) ViewParticle(pos mgl64.Vec3, p world.Particle) {
 			EventType: packet.LevelEventParticleLegacyEvent | 88,
 			Position:  vec64To32(pos),
 		})
+	case particle.Custom:
+		pk := packet.SpawnParticleEffect{
+			EntityUniqueID: -1,
+			Position:       vec64To32(pos),
+			ParticleName:   pa.Identifier,
+		}
+
+		if vars, err := json.Marshal(pa.MoLangVariables); err == nil {
+			pk.MoLangVariables = protocol.Option(vars)
+		}
+
+		s.writePacket(&pk)
 	}
 }
 
@@ -825,6 +838,36 @@ func (s *Session) playSound(pos mgl64.Vec3, t world.Sound, disableRelative bool)
 		return
 	case sound.DecoratedPotInsertFailed:
 		pk.SoundType = packet.SoundEventDecoratedPotInsertFail
+	case sound.MaceSmashGround:
+		pk.SoundType = packet.SoundEventMaceSmashGround
+		if so.Heavy {
+			pk.SoundType = packet.SoundEventMaceHeavySmashGround
+		}
+	case sound.MaceSmashAir:
+		pk.SoundType = packet.SoundEventMaceSmashAir
+	case sound.WindBurst:
+		pk.SoundType = packet.SoundEventWindChargeBurst
+		if so.Breeze {
+			pk.SoundType = packet.SoundEventBreezeWindChargeBurst
+		}
+	case sound.Custom:
+		var volume, pitch float32
+		volume, pitch = float32(so.Volume), float32(so.Pitch)
+
+		if volume == 0 {
+			volume = 1.0
+		}
+		if pitch == 0 {
+			pitch = 1.0
+		}
+
+		s.writePacket(&packet.PlaySound{
+			SoundName: so.Definition,
+			Position:  vec64To32(pos),
+			Volume:    volume,
+			Pitch:     pitch,
+		})
+		return
 	case sound.LightningExplode:
 		s.writePacket(&packet.PlaySound{
 			SoundName: "ambient.weather.lightning.impact",
