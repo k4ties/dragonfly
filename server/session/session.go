@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/df-mc/dragonfly/server/event"
+	"github.com/df-mc/dragonfly/server/player/debug"
 	"io"
 	"log/slog"
 	"maps"
@@ -90,6 +91,11 @@ type Session struct {
 	invOpened             bool
 
 	closeBackground chan struct{}
+
+	debugShapesMu     sync.RWMutex
+	debugShapes       map[int]debug.Shape
+	debugShapesAdd    chan debug.Shape
+	debugShapesRemove chan int
 }
 
 // Conn represents a connection that packets are read from and written to by a Session. In addition, it holds some
@@ -171,6 +177,9 @@ func (conf Config) New(conn Conn) *Session {
 		recipes:                make(map[uint32]recipe.Recipe),
 		conf:                   conf,
 		userHandler:            NopUserHandler{},
+		debugShapes:            make(map[int]debug.Shape),
+		debugShapesAdd:         make(chan debug.Shape, 256),
+		debugShapesRemove:      make(chan int, 256),
 	}
 	s.openedWindow.Store(inventory.New(1, nil))
 	s.openedPos.Store(&cube.Pos{})
