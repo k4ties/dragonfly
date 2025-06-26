@@ -171,6 +171,12 @@ func (tx *Tx) PlayEntityAnimation(e Entity, a EntityAnimation) {
 	}
 }
 
+// AddEntityWithViewers adds an EntityHandle to a World. The Entity will be visible
+// only to the provided viewers.
+func (tx *Tx) AddEntityWithViewers(e *EntityHandle, viewers []Viewer) Entity {
+	return tx.World().addEntityWithViewers(tx, e, viewers)
+}
+
 // PlaySound plays a sound at a specific position in the World. Viewers of that
 // position will be able to hear the sound if they are close enough.
 func (tx *Tx) PlaySound(pos mgl64.Vec3, s Sound) {

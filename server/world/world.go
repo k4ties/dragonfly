@@ -687,6 +687,25 @@ func (w *World) addEntity(tx *Tx, handle *EntityHandle) Entity {
 	return e
 }
 
+// addEntityWithViewers adds an EntityHandle to a World. The Entity will be visible
+// only to the provided viewers.
+func (w *World) addEntityWithViewers(tx *Tx, handle *EntityHandle, viewers []Viewer) Entity {
+	handle.setAndUnlockWorld(w)
+	pos := chunkPosFromVec3(handle.Data.Pos)
+	w.entities[handle] = pos
+
+	c := w.chunk(pos)
+	c.Entities, c.modified = append(c.Entities, handle), true
+
+	e := handle.mustEntity(tx)
+	for _, v := range viewers {
+		showEntity(e, v)
+	}
+
+	w.Handler().HandleEntitySpawn(tx, e)
+	return e
+}
+
 // removeEntity removes an Entity from the World that is currently present in
 // it. Any viewers of the Entity will no longer be able to see it.
 // removeEntity returns the EntityHandle of the Entity. After removing an Entity

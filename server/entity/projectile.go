@@ -82,6 +82,8 @@ type ProjectileBehaviourConfig struct {
 	CollisionPosition cube.Pos
 	// Allower ...
 	Allower ProjectileIntersectAllower
+	// Timeout is timeout of the projectile entity.
+	Timeout time.Duration
 }
 
 type ProjectileIntersectAllower func(ent world.Entity, conf *ProjectileBehaviourConfig) bool
@@ -96,7 +98,10 @@ func (conf ProjectileBehaviourConfig) New() *ProjectileBehaviour {
 	if conf.ParticleCount == 0 && conf.Particle != nil {
 		conf.ParticleCount = 1
 	}
-	return &ProjectileBehaviour{conf: conf, collided: conf.CollisionPosition != cube.Pos{}, collisionPos: conf.CollisionPosition, mc: &MovementComputer{
+	if conf.Timeout == 0 {
+		conf.Timeout = time.Minute
+	}
+	return &ProjectileBehaviour{conf: conf, collided: conf.CollisionPosition != cube.Pos{}, collisionPos: conf.CollisionPosition, created: time.Now(), mc: &MovementComputer{
 		Gravity:           conf.Gravity,
 		Drag:              conf.Drag,
 		DragBeforeGravity: true,
@@ -113,6 +118,8 @@ type ProjectileBehaviour struct {
 
 	collisionPos cube.Pos
 	collided     bool
+
+	created time.Time
 }
 
 // Owner returns the owner of the projectile.
@@ -142,7 +149,7 @@ func (lt *ProjectileBehaviour) Critical() bool {
 // Movement within the tick. Tick handles the movement, collision and hitting
 // of a projectile.
 func (lt *ProjectileBehaviour) Tick(e *Ent, tx *world.Tx) *Movement {
-	if lt.close {
+	if lt.close || time.Since(lt.created) >= lt.conf.Timeout {
 		_ = e.Close()
 		return nil
 	}
