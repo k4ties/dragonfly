@@ -180,6 +180,9 @@ func (s *Session) HideEntity(e world.Entity) {
 		delete(s.entityRuntimeIDs, e.H())
 		delete(s.entities, id)
 	}
+	if _, hidden := s.hiddenEntities[e.H().UUID()]; hidden {
+		delete(s.hiddenEntities, e.H().UUID())
+	}
 	s.entityMutex.Unlock()
 	if !ok {
 		// The entity was already removed some other way. We don't need to send a packet.
@@ -1317,6 +1320,7 @@ func (s *Session) handleRuntimeID(e *world.EntityHandle) uint64 {
 	if id, ok := s.entityRuntimeIDs[e]; ok {
 		return id
 	}
+
 	s.conf.Log.Debug("entity runtime ID not found", "UUID", e.UUID().String())
 	return 0
 }

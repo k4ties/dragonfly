@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/cmd"
 	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/player/debug"
 	"io"
@@ -403,46 +404,44 @@ func (s *Session) handlePackets() {
 // background performs background tasks of the Session. This includes chunk sending and automatic command updating.
 // background returns when the Session's connection is closed using CloseConnection.
 func (s *Session) background() {
-	s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
-		c := e.(Controllable)
-		s.ResendCommands(c)
-	})
+	var (
+		r          map[string]map[int]cmd.Runnable
+		enums      map[string]cmd.Enum
+		enumValues map[string][]string
+		ok         bool
+		i          int
+	)
 
-	var tick int
+	s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
+		co := e.(Controllable)
+		r = s.sendAvailableCommands(co)
+		enums, enumValues = s.enums(co)
+	})
 
 	t := time.NewTicker(time.Second / 20)
 	defer t.Stop()
-
 	for {
 		select {
 		case <-t.C:
-			tick++
 			s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
 				c := e.(Controllable)
-				s.sendChunks(tx, c)
 
-				if (tick % 70) == 0 { // Every 3.5 seconds
-					s.ResendCommands(c)
+				if i++; i%20 == 0 {
+					// Enum resending happens relatively often and frequent updates are more important than with full
+					// command changes. Those are generally only related to permission changes, which doesn't happen often.
+					s.resendEnums(enums, enumValues, c)
 				}
+				if i%100 == 0 {
+					// Try to resend commands only every 5 seconds.
+					if r, ok = s.resendCommands(r, c); ok {
+						enums, enumValues = s.enums(c)
+					}
+				}
+				s.sendChunks(tx, c)
 			})
 		case <-s.closeBackground:
 			return
 		}
-	}
-}
-
-// ResendCommands will resend all server commands for a session.
-func (s *Session) ResendCommands(c Controllable) {
-	var (
-		r  = s.sendAvailableCommands(c)
-		ok bool
-		enums,
-		enumValues = s.enums(c)
-	)
-
-	s.resendEnums(enums, enumValues, c)
-	if r, ok = s.resendCommands(r, c); ok {
-		enums, enumValues = s.enums(c)
 	}
 }
 
