@@ -4,18 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/df-mc/dragonfly/server/cmd"
-	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/player/debug"
+	"github.com/df-mc/dragonfly/server/player/hud"
 	"io"
 	"log/slog"
-	"maps"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
+	"github.com/df-mc/dragonfly/server/cmd"
 	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/item/recipe"
 	"github.com/df-mc/dragonfly/server/player/chat"
@@ -37,13 +36,11 @@ type Session struct {
 	conf           Config
 	once, connOnce sync.Once
 
-	ent      *world.EntityHandle
-	conn     Conn
-	handlers map[uint32]packetHandler
-	packets  chan packet.Packet
-
-	userHandler   UserPacketHandler
-	userHandlerMu sync.Mutex
+	ent             *world.EntityHandle
+	conn            Conn
+	handlers        map[uint32]packetHandler
+	outgoingPackets chan packet.Packet
+	incomingPackets chan packet.Packet
 
 	currentScoreboard atomic.Pointer[string]
 	currentLines      atomic.Pointer[[]string]
@@ -91,12 +88,17 @@ type Session struct {
 	openChunkTransactions []map[uint64]struct{}
 	invOpened             bool
 
-	closeBackground chan struct{}
+	hudMu      sync.RWMutex
+	hudUpdates map[hud.Element]bool
+	hiddenHud  map[hud.Element]struct{}
 
 	debugShapesMu     sync.RWMutex
 	debugShapes       map[int]debug.Shape
 	debugShapesAdd    chan debug.Shape
 	debugShapesRemove chan int
+
+	closeBackground chan struct{}
+	closeRead       chan struct{}
 }
 
 // Conn represents a connection that packets are read from and written to by a Session. In addition, it holds some
@@ -164,8 +166,10 @@ func (conf Config) New(conn Conn) *Session {
 	*s = Session{
 		openChunkTransactions:  make([]map[uint64]struct{}, 0, 8),
 		closeBackground:        make(chan struct{}),
+		closeRead:              make(chan struct{}),
 		handlers:               map[uint32]packetHandler{},
-		packets:                make(chan packet.Packet, 256),
+		outgoingPackets:        make(chan packet.Packet, 256),
+		incomingPackets:        make(chan packet.Packet, 256),
 		entityRuntimeIDs:       map[*world.EntityHandle]uint64{},
 		entities:               map[uint64]*world.EntityHandle{},
 		hiddenEntities:         map[uuid.UUID]struct{}{},
@@ -177,7 +181,8 @@ func (conf Config) New(conn Conn) *Session {
 		heldSlot:               new(uint32),
 		recipes:                make(map[uint32]recipe.Recipe),
 		conf:                   conf,
-		userHandler:            NopUserHandler{},
+		hudUpdates:             make(map[hud.Element]bool),
+		hiddenHud:              make(map[hud.Element]struct{}),
 		debugShapes:            make(map[int]debug.Shape),
 		debugShapesAdd:         make(chan debug.Shape, 256),
 		debugShapesRemove:      make(chan int, 256),
@@ -202,14 +207,41 @@ func (conf Config) New(conn Conn) *Session {
 			select {
 			case <-s.closeBackground:
 				return
-			case pk := <-s.packets:
-				if handler := s.UserHandler(); handler != nil {
-					ctx := event.C(s)
-					if s.UserHandler().HandleServerPacket(ctx, pk); ctx.Cancelled() {
-						continue
+			case pk := <-s.outgoingPackets:
+				_ = conn.WritePacket(pk)
+			case first := <-s.incomingPackets:
+				var err error
+				s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
+					err = s.handlePacket(first, tx, e.(Controllable))
+					if err != nil {
+						return
+					}
+
+					total := len(s.incomingPackets)
+				receive:
+					for i := 0; i < total; i++ {
+						select {
+						case <-s.closeBackground:
+							break receive
+						case pk := <-s.incomingPackets:
+							err = s.handlePacket(pk, tx, e.(Controllable))
+							if err != nil {
+								break receive
+							}
+						default:
+							break receive
+						}
+					}
+				})
+
+				if err != nil {
+					s.conf.Log.Debug("process packet: " + err.Error())
+					select {
+					case <-s.closeRead:
+					default:
+						close(s.closeRead)
 					}
 				}
-				_ = conn.WritePacket(pk)
 			}
 		}
 	}()
@@ -306,39 +338,6 @@ func (s *Session) close(tx *world.Tx, c Controllable) {
 	s.entityMutex.Unlock()
 }
 
-// EntityHandle returns session EntityHandle.
-func (s *Session) EntityHandle() *world.EntityHandle {
-	return s.ent
-}
-
-// Entities returns all saved Session entities.
-func (s *Session) Entities() map[uint64]*world.EntityHandle {
-	s.entityMutex.RLock()
-	defer s.entityMutex.RUnlock()
-	return maps.Clone(s.entities)
-}
-
-// UserHandler returns current Session UserPacketHandler.
-func (s *Session) UserHandler() UserPacketHandler {
-	s.userHandlerMu.Lock()
-	defer s.userHandlerMu.Unlock()
-	return s.userHandler
-}
-
-// Handle ...
-func (s *Session) Handle(h UserPacketHandler) {
-	s.userHandlerMu.Lock()
-	defer s.userHandlerMu.Unlock()
-	if h == nil {
-		h = NopUserHandler{}
-	}
-	s.userHandler = h
-}
-
-func (s *Session) ChunkLoader() *world.Loader {
-	return s.chunkLoader
-}
-
 // CloseConnection closes the underlying connection of the session so that the session ends up being closed
 // eventually.
 func (s *Session) CloseConnection() {
@@ -363,11 +362,6 @@ func (s *Session) ClientData() login.ClientData {
 	return s.conn.ClientData()
 }
 
-// IdentityData returns the login.IdentityData of the underlying *minecraft.Conn.
-func (s *Session) IdentityData() login.IdentityData {
-	return s.conn.IdentityData()
-}
-
 // handlePackets continuously handles incoming packets from the connection. It processes them accordingly.
 // Once the connection is closed, handlePackets will return.
 func (s *Session) handlePackets() {
@@ -385,18 +379,15 @@ func (s *Session) handlePackets() {
 		})
 	}()
 	for {
-		pk, err := s.ReadPacket()
+		pk, err := s.conn.ReadPacket()
 		if err != nil {
 			return
 		}
 
-		s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
-			err = s.handlePacket(pk, tx, e.(Controllable))
-		})
-
-		if err != nil && !errors.Is(err, context.Canceled) {
-			s.conf.Log.Debug("process packet: " + err.Error())
+		select {
+		case <-s.closeRead:
 			return
+		case s.incomingPackets <- pk:
 		}
 	}
 }
@@ -482,7 +473,7 @@ func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable
 	if !same {
 		s.changeDimension(int32(dim), false, c)
 	}
-	s.ViewEntityTeleport(c, c.Position(), c.Rotation())
+	s.ViewEntityTeleport(c, c.Position())
 	s.chunkLoader.ChangeWorld(tx, w)
 }
 
@@ -533,7 +524,7 @@ func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (
 	return nil
 }
 
-// registerHandlers registers all packet handlers found in the PacketHandler package.
+// registerHandlers registers all packet handlers found in the packetHandler package.
 func (s *Session) registerHandlers() {
 	s.handlers = map[uint32]packetHandler{
 		packet.IDActorEvent:                nil,
@@ -578,32 +569,9 @@ func (s *Session) writePacket(pk packet.Packet) {
 		return
 	}
 	select {
-	case s.packets <- pk:
+	case s.outgoingPackets <- pk:
 	case <-s.closeBackground:
 	}
-}
-
-// WritePacket is exported alias to writePacket.
-func (s *Session) WritePacket(pk packet.Packet) {
-	s.writePacket(pk)
-}
-
-// ReadPacket ...
-func (s *Session) ReadPacket() (packet.Packet, error) {
-	pk, err := s.conn.ReadPacket()
-	if err != nil {
-		return nil, err
-	}
-	ctx := event.C(s)
-	if s.UserHandler().HandleClientPacket(ctx, pk); ctx.Cancelled() {
-		return nil, context.Canceled
-	}
-	return pk, nil
-}
-
-// Conn ...
-func (s *Session) Conn() Conn {
-	return s.conn
 }
 
 // actorIdentifier represents the structure of an actor identifier sent over the network.

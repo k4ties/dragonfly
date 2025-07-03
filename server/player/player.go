@@ -3,6 +3,7 @@ package player
 import (
 	"fmt"
 	"github.com/df-mc/dragonfly/server/player/debug"
+	"github.com/df-mc/dragonfly/server/player/hud"
 	"math"
 	"math/rand/v2"
 	"net"
@@ -214,22 +215,6 @@ func (p *Player) Handle(h Handler) {
 		h = NopHandler{}
 	}
 	p.h = h
-}
-
-func (p *Player) EntityData() *world.EntityData {
-	return p.data
-}
-
-func (p *Player) DeleteValue(key string) {
-	p.handle.DeleteValue(key)
-}
-
-func (p *Player) SetValue(key string, value any) {
-	p.handle.SetValue(key, value)
-}
-
-func (p *Player) Value(key string) (any, bool) {
-	return p.handle.Value(key)
 }
 
 // Message sends a formatted message to the player. The message is formatted following the rules of
@@ -590,10 +575,6 @@ func (p *Player) fall(distance float64) {
 // final damage dealt to the Player and if the Player was vulnerable to this
 // kind of damage.
 func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
-	return p.hurt(dmg, nil, src)
-}
-
-func (p *Player) hurt(dmg float64, stack *item.Stack, src world.DamageSource) (float64, bool) {
 	if _, ok := p.Effect(effect.FireResistance); (ok && src.Fire()) || p.Dead() || !p.GameMode().AllowsTakingDamage() || dmg < 0 {
 		return 0, false
 	}
@@ -608,9 +589,8 @@ func (p *Player) hurt(dmg float64, stack *item.Stack, src world.DamageSource) (f
 	}
 
 	immunity := time.Second / 2
-
 	ctx := event.C(p)
-	if p.Handler().HandleHurt(ctx, stack, &damageLeft, immune, &immunity, src); ctx.Cancelled() {
+	if p.Handler().HandleHurt(ctx, &damageLeft, immune, &immunity, src); ctx.Cancelled() {
 		return 0, false
 	}
 	p.setAttackImmunity(immunity, totalDamage)
@@ -622,7 +602,6 @@ func (p *Player) hurt(dmg float64, stack *item.Stack, src world.DamageSource) (f
 
 	if p.Health()-damageLeft <= mgl64.Epsilon && !src.IgnoreTotem() {
 		hand, offHand := p.HeldItems()
-
 		if _, ok := offHand.Item().(item.Totem); ok {
 			p.applyTotemEffects()
 			p.SetHeldItems(hand, offHand.Grow(-1))
@@ -635,6 +614,7 @@ func (p *Player) hurt(dmg float64, stack *item.Stack, src world.DamageSource) (f
 	}
 
 	p.addHealth(-damageLeft)
+
 	if src.ReducedByArmour() {
 		p.Exhaust(0.1)
 		p.Armour().Damage(dmg, p.damageItem)
@@ -645,7 +625,6 @@ func (p *Player) hurt(dmg float64, stack *item.Stack, src world.DamageSource) (f
 		} else if s, ok := src.(entity.ProjectileDamageSource); ok {
 			origin = s.Owner
 		}
-
 		if l, ok := origin.(entity.Living); ok {
 			if thornsDmg := p.Armour().ThornsDamage(p.damageItem); thornsDmg > 0 {
 				l.Hurt(thornsDmg, enchantment.ThornsDamageSource{Owner: p})
@@ -666,7 +645,6 @@ func (p *Player) hurt(dmg float64, stack *item.Stack, src world.DamageSource) (f
 	if p.Dead() {
 		p.kill(src)
 	}
-
 	return totalDamage, true
 }
 
@@ -941,11 +919,6 @@ func (p *Player) MoveItemsToInventory() {
 	}
 }
 
-// UI returns player UI inventory.
-func (p *Player) UI() *inventory.Inventory {
-	return p.ui
-}
-
 // Respawn spawns the player after it dies, so that its health is replenished,
 // and it is spawned in the world again. Nothing will happen if the player does
 // not have a session connected to it.
@@ -977,7 +950,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	handle := p.tx.RemoveEntity(p)
 	w.Exec(func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
-		np.Teleport(pos, p.Rotation())
+		np.Teleport(pos)
 		np.session().SendRespawn(pos, p)
 		np.SetVisible()
 		if f != nil {
@@ -1676,6 +1649,12 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 	if !p.canReach(e.Position()) {
 		return false
 	}
+
+	living, isLiving := e.(entity.Living)
+	if isLiving && living.Dead() {
+		return false
+	}
+
 	var (
 		force, height  = 0.45, 0.3608
 		_, slowFalling = p.Effect(effect.SlowFalling)
@@ -1683,8 +1662,16 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 		critical       = !p.Sprinting() && !p.Flying() && p.FallDistance() > 0 && !slowFalling && !blind
 	)
 
-	i, offHand := p.HeldItems()
-	old := i
+	ctx := event.C(p)
+	if p.Handler().HandleAttackEntity(ctx, e, &force, &height, &critical); ctx.Cancelled() {
+		return false
+	}
+	p.SwingArm()
+
+	i, _ := p.HeldItems()
+	if !isLiving {
+		return false
+	}
 
 	dmg := i.AttackDamage()
 	if strength, ok := p.Effect(effect.Strength); ok {
@@ -1696,52 +1683,17 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 	if s, ok := i.Enchantment(enchantment.Sharpness); ok {
 		dmg += enchantment.Sharpness.Addend(s.Level())
 	}
-
-	ctx := event.C(p)
-	if p.Handler().HandleAttackEntity(ctx, e, &i, &dmg, &force, &height, &critical); ctx.Cancelled() {
-		return false
-	}
-
-	if !i.Equal(old) {
-		// Handler changed item
-		p.SetHeldItems(i, offHand)
-	}
-
 	if critical {
 		dmg *= 1.5
 	}
 
-	p.SwingArm()
-
-	living, ok := e.(entity.Living)
-	if !ok {
-		return false
-	}
-
-	var (
-		n          float64
-		vulnerable bool
-	)
-
-	src := entity.AttackDamageSource{Attacker: p}
-
-	if pl, ok := living.(*Player); ok {
-		n, vulnerable = pl.hurt(dmg, &i, src)
-		if !i.Equal(old) {
-			// Handler changed item
-			p.SetHeldItems(i, offHand)
-		}
-	} else {
-		n, vulnerable = living.Hurt(dmg, src)
-	}
-
+	n, vulnerable := living.Hurt(dmg, entity.AttackDamageSource{Attacker: p})
 	i, left := p.HeldItems()
 
 	p.tx.PlaySound(entity.EyePosition(e), sound.Attack{Damage: !mgl64.FloatEqual(n, 0)})
 	if !vulnerable {
 		return true
 	}
-
 	if critical {
 		for _, v := range p.tx.Viewers(living.Position()) {
 			v.ViewEntityAction(living, entity.CriticalHitAction{})
@@ -2100,22 +2052,21 @@ func (p *Player) PickBlock(pos cube.Pos) {
 
 // Teleport teleports the player to a target position in the world. Unlike Move, it immediately changes the
 // position of the player, rather than showing an animation.
-func (p *Player) Teleport(pos mgl64.Vec3, rot cube.Rotation) {
+func (p *Player) Teleport(pos mgl64.Vec3) {
 	ctx := event.C(p)
-	if p.Handler().HandleTeleport(ctx, pos, rot); ctx.Cancelled() {
+	if p.Handler().HandleTeleport(ctx, pos); ctx.Cancelled() {
 		return
 	}
-	p.teleport(pos, rot)
+	p.teleport(pos)
 }
 
 // teleport teleports the player to a target position in the world. It does not call the Handler of the
 // player.
-func (p *Player) teleport(pos mgl64.Vec3, rot cube.Rotation) {
+func (p *Player) teleport(pos mgl64.Vec3) {
 	for _, v := range p.viewers() {
-		v.ViewEntityTeleport(p, pos, rot)
+		v.ViewEntityTeleport(p, pos)
 	}
 	p.data.Pos = pos
-	p.data.Rot = rot
 	p.data.Vel = mgl64.Vec3{}
 	p.ResetFallDistance()
 }
@@ -2144,14 +2095,14 @@ func (p *Player) Move(deltaPos mgl64.Vec3, deltaYaw, deltaPitch float64) {
 		if p.session() != session.Nop && pos.ApproxEqual(p.Position()) {
 			// The position of the player was changed and the event cancelled. This means we still need to notify the
 			// player of this movement change.
-			p.teleport(pos, p.Rotation())
+			p.teleport(pos)
 		}
 		return
 	}
-
 	for _, v := range p.viewers() {
 		v.ViewEntityMovement(p, res, resRot, p.OnGround())
 	}
+
 	p.data.Pos = res
 	p.data.Rot = resRot
 	if deltaPos.Len() <= 3 {
@@ -2422,7 +2373,6 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 	if p.Dead() {
 		return
 	}
-	p.Handler().HandleTick(p, current)
 	if _, ok := p.tx.Liquid(cube.PosFromVec3(p.Position())); !ok {
 		p.StopSwimming()
 		if _, ok := p.Armour().Helmet().Item().(item.TurtleShell); ok {
@@ -2490,6 +2440,8 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 		}
 	}
 
+	p.session().SendDebugShapes()
+	p.session().SendHudUpdates()
 	p.session().SendDebugShapes()
 
 	if p.prevWorld != tx.World() && p.prevWorld != nil {
@@ -2915,6 +2867,21 @@ func (p *Player) UpdateDiagnostics(d session.Diagnostics) {
 	p.Handler().HandleDiagnostics(p, d)
 }
 
+// ShowHudElement shows a HUD element to the player if it is not already shown.
+func (p *Player) ShowHudElement(e hud.Element) {
+	p.session().ShowHudElement(e)
+}
+
+// HideHudElement hides a HUD element from the player if it is not already hidden.
+func (p *Player) HideHudElement(e hud.Element) {
+	p.session().HideHudElement(e)
+}
+
+// HudElementHidden checks if a HUD element is currently hidden from the player.
+func (p *Player) HudElementHidden(e hud.Element) bool {
+	return p.session().HudElementHidden(e)
+}
+
 // AddDebugShape adds a debug shape to be rendered to the player. If the shape already exists, it will be
 // updated with the new information.
 func (p *Player) AddDebugShape(shape debug.Shape) {
@@ -3040,7 +3007,6 @@ func (p *Player) quit(msg string) {
 	// session will remove the player once ready.
 	p.tx.RemoveEntity(p)
 	_ = p.handle.Close()
-
 }
 
 // Data returns the player data that needs to be saved. This is used when the player
@@ -3139,7 +3105,7 @@ func (p *Player) Handler() Handler {
 }
 
 // broadcastItems broadcasts the items held to viewers.
-func (p *Player) broadcastItems(_ int, _, _ item.Stack) {
+func (p *Player) broadcastItems(int, item.Stack, item.Stack) {
 	for _, viewer := range p.viewers() {
 		viewer.ViewEntityItems(p)
 	}
