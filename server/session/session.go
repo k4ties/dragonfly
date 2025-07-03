@@ -216,35 +216,6 @@ func (conf Config) New(conn Conn) *Session {
 	return s
 }
 
-// EntityHandle returns session EntityHandle.
-func (s *Session) EntityHandle() *world.EntityHandle {
-	return s.ent
-}
-
-// Entities returns all saved Session entities.
-func (s *Session) Entities() map[uint64]*world.EntityHandle {
-	s.entityMutex.RLock()
-	defer s.entityMutex.RUnlock()
-	return maps.Clone(s.entities)
-}
-
-// UserHandler returns current Session UserPacketHandler.
-func (s *Session) UserHandler() UserPacketHandler {
-	s.userHandlerMu.Lock()
-	defer s.userHandlerMu.Unlock()
-	return s.userHandler
-}
-
-// Handle ...
-func (s *Session) Handle(h UserPacketHandler) {
-	s.userHandlerMu.Lock()
-	defer s.userHandlerMu.Unlock()
-	if h == nil {
-		h = NopUserHandler{}
-	}
-	s.userHandler = h
-}
-
 // SetHandle sets the world.EntityHandle of the Session and attaches a skin to
 // other players on join.
 func (s *Session) SetHandle(handle *world.EntityHandle, skin skin.Skin) {
@@ -333,6 +304,35 @@ func (s *Session) close(tx *world.Tx, c Controllable) {
 	clear(s.entityRuntimeIDs)
 	clear(s.entities)
 	s.entityMutex.Unlock()
+}
+
+// EntityHandle returns session EntityHandle.
+func (s *Session) EntityHandle() *world.EntityHandle {
+	return s.ent
+}
+
+// Entities returns all saved Session entities.
+func (s *Session) Entities() map[uint64]*world.EntityHandle {
+	s.entityMutex.RLock()
+	defer s.entityMutex.RUnlock()
+	return maps.Clone(s.entities)
+}
+
+// UserHandler returns current Session UserPacketHandler.
+func (s *Session) UserHandler() UserPacketHandler {
+	s.userHandlerMu.Lock()
+	defer s.userHandlerMu.Unlock()
+	return s.userHandler
+}
+
+// Handle ...
+func (s *Session) Handle(h UserPacketHandler) {
+	s.userHandlerMu.Lock()
+	defer s.userHandlerMu.Unlock()
+	if h == nil {
+		h = NopUserHandler{}
+	}
+	s.userHandler = h
 }
 
 func (s *Session) ChunkLoader() *world.Loader {

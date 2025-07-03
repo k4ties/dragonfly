@@ -112,22 +112,6 @@ type Player struct {
 	*playerData
 }
 
-func (p *Player) EntityData() *world.EntityData {
-	return p.data
-}
-
-func (p *Player) DeleteValue(key string) {
-	p.handle.DeleteValue(key)
-}
-
-func (p *Player) SetValue(key string, value any) {
-	p.handle.SetValue(key, value)
-}
-
-func (p *Player) Value(key string) (any, bool) {
-	return p.handle.Value(key)
-}
-
 func (p *Player) H() *world.EntityHandle {
 	return p.handle
 }
@@ -230,6 +214,22 @@ func (p *Player) Handle(h Handler) {
 		h = NopHandler{}
 	}
 	p.h = h
+}
+
+func (p *Player) EntityData() *world.EntityData {
+	return p.data
+}
+
+func (p *Player) DeleteValue(key string) {
+	p.handle.DeleteValue(key)
+}
+
+func (p *Player) SetValue(key string, value any) {
+	p.handle.SetValue(key, value)
+}
+
+func (p *Player) Value(key string) (any, bool) {
+	return p.handle.Value(key)
 }
 
 // Message sends a formatted message to the player. The message is formatted following the rules of
