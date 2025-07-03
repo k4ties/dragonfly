@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/player/debug"
 	"github.com/df-mc/dragonfly/server/player/hud"
 	"io"
@@ -83,9 +82,6 @@ type Session struct {
 	moving                         bool
 
 	recipes map[uint32]recipe.Recipe
-
-	userHandler   UserPacketHandler
-	userHandlerMu sync.Mutex
 
 	blobMu                sync.Mutex
 	blobs                 map[uint64][]byte
@@ -383,11 +379,8 @@ func (s *Session) handlePackets() {
 		})
 	}()
 	for {
-		pk, err := s.ReadPacket()
+		pk, err := s.conn.ReadPacket()
 		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				continue
-			}
 			return
 		}
 
@@ -600,40 +593,8 @@ func (s *Session) sendAvailableEntities(w *world.World) {
 	s.writePacket(&packet.AvailableActorIdentifiers{SerialisedEntityIdentifiers: serializedEntityData})
 }
 
-func (s *Session) UserHandler() UserPacketHandler {
-	s.userHandlerMu.Lock()
-	defer s.userHandlerMu.Unlock()
-	h := s.userHandler
-	if h == nil {
-		h = NopUserHandler{}
-	}
-	return h
-}
-
-func (s *Session) Handle(u UserPacketHandler) {
-	if u == nil {
-		u = NopUserHandler{}
-	}
-	s.userHandlerMu.Lock()
-	s.userHandler = u
-	s.userHandlerMu.Unlock()
-}
-
 func (s *Session) WritePacket(pk packet.Packet) {
 	s.writePacket(pk)
-}
-
-// ReadPacket ...
-func (s *Session) ReadPacket() (packet.Packet, error) {
-	pk, err := s.conn.ReadPacket()
-	if err != nil {
-		return nil, err
-	}
-	ctx := event.C(s)
-	if s.UserHandler().HandleClientPacket(ctx, pk); ctx.Cancelled() {
-		return nil, context.Canceled
-	}
-	return pk, nil
 }
 
 func (s *Session) IdentityData() login.IdentityData {

@@ -1,7 +1,6 @@
 package session
 
 import (
-	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -12,20 +11,3 @@ type packetHandler interface {
 	// Handle returns an error if the packet was in any way invalid.
 	Handle(p packet.Packet, s *Session, tx *world.Tx, c Controllable) error
 }
-
-// Context ...
-type Context = event.Context[*Session]
-
-// UserPacketHandler ...
-type UserPacketHandler interface {
-	// HandleClientPacket ...
-	HandleClientPacket(ctx *Context, pk packet.Packet)
-	// HandleServerPacket ...
-	HandleServerPacket(ctx *Context, pk packet.Packet)
-}
-
-// NopUserHandler is no-operation implementation of UserPacketHandler.
-type NopUserHandler struct{}
-
-func (NopUserHandler) HandleClientPacket(*Context, packet.Packet) {}
-func (NopUserHandler) HandleServerPacket(*Context, packet.Packet) {}
