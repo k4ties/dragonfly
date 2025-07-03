@@ -83,6 +83,9 @@ type Session struct {
 
 	recipes map[uint32]recipe.Recipe
 
+	userHandler   UserPacketHandler
+	userHandlerMu sync.Mutex
+
 	blobMu                sync.Mutex
 	blobs                 map[uint64][]byte
 	openChunkTransactions []map[uint64]struct{}
@@ -473,7 +476,7 @@ func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable
 	if !same {
 		s.changeDimension(int32(dim), false, c)
 	}
-	s.ViewEntityTeleport(c, c.Position())
+	s.ViewEntityTeleport(c, c.Position(), c.Rotation())
 	s.chunkLoader.ChangeWorld(tx, w)
 }
 
@@ -591,4 +594,16 @@ func (s *Session) sendAvailableEntities(w *world.World) {
 		panic("should never happen")
 	}
 	s.writePacket(&packet.AvailableActorIdentifiers{SerialisedEntityIdentifiers: serializedEntityData})
+}
+
+func (s *Session) UserHandler() UserPacketHandler {
+	s.userHandlerMu.Lock()
+	defer s.userHandlerMu.Unlock()
+	return s.userHandler
+}
+
+func (s *Session) Handle(u UserPacketHandler) {
+	s.userHandlerMu.Lock()
+	s.userHandler = u
+	s.userHandlerMu.Unlock()
 }
