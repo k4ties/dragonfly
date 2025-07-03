@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/player/debug"
 	"github.com/df-mc/dragonfly/server/player/hud"
 	"io"
@@ -382,8 +383,11 @@ func (s *Session) handlePackets() {
 		})
 	}()
 	for {
-		pk, err := s.conn.ReadPacket()
+		pk, err := s.ReadPacket()
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				continue
+			}
 			return
 		}
 
@@ -606,4 +610,43 @@ func (s *Session) Handle(u UserPacketHandler) {
 	s.userHandlerMu.Lock()
 	s.userHandler = u
 	s.userHandlerMu.Unlock()
+}
+
+func (s *Session) WritePacket(pk packet.Packet) {
+	s.writePacket(pk)
+}
+
+// ReadPacket ...
+func (s *Session) ReadPacket() (packet.Packet, error) {
+	pk, err := s.conn.ReadPacket()
+	if err != nil {
+		return nil, err
+	}
+	ctx := event.C(s)
+	if s.UserHandler().HandleClientPacket(ctx, pk); ctx.Cancelled() {
+		return nil, context.Canceled
+	}
+	return pk, nil
+}
+
+func (s *Session) IdentityData() login.IdentityData {
+	return s.conn.IdentityData()
+}
+
+func (s *Session) Conn() Conn {
+	return s.conn
+}
+
+func (s *Session) EntityHandle() *world.EntityHandle {
+	return s.ent
+}
+
+func (s *Session) IterateEntities(f func(runtimeID uint64, ent *world.EntityHandle) bool) {
+	s.entityMutex.RLock()
+	for rid, ent := range s.entities {
+		if !f(rid, ent) {
+			break
+		}
+	}
+	s.entityMutex.RUnlock()
 }

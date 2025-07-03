@@ -3174,3 +3174,19 @@ func format(a []any) string {
 func (p *Player) EntityData() *world.EntityData {
 	return p.data
 }
+
+func (p *Player) UI() *inventory.Inventory {
+	return p.ui
+}
+
+func (p *Player) SetValue(key string, val any) {
+	p.handle.SetValue(key, val)
+}
+
+func (p *Player) Value(key string) (any, bool) {
+	return p.handle.Value(key)
+}
+
+func (p *Player) DeleteValue(key string) {
+	p.handle.DeleteValue(key)
+}
