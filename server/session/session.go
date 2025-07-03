@@ -603,10 +603,17 @@ func (s *Session) sendAvailableEntities(w *world.World) {
 func (s *Session) UserHandler() UserPacketHandler {
 	s.userHandlerMu.Lock()
 	defer s.userHandlerMu.Unlock()
-	return s.userHandler
+	h := s.userHandler
+	if h == nil {
+		h = NopUserHandler{}
+	}
+	return h
 }
 
 func (s *Session) Handle(u UserPacketHandler) {
+	if u == nil {
+		u = NopUserHandler{}
+	}
 	s.userHandlerMu.Lock()
 	s.userHandler = u
 	s.userHandlerMu.Unlock()
