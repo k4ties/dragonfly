@@ -1,12 +1,10 @@
 package player
 
-import (
-	"sync"
-)
+import "github.com/sasha-s/go-deadlock"
 
 // hungerManager handles the changes in hunger, exhaustion and saturation of a player.
 type hungerManager struct {
-	mu              sync.RWMutex
+	mu              deadlock.RWMutex
 	foodLevel       int
 	saturationLevel float64
 	exhaustionLevel float64

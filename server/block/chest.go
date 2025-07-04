@@ -9,8 +9,8 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/sound"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/sasha-s/go-deadlock"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -34,14 +34,14 @@ type Chest struct {
 	pairInv      *inventory.Inventory
 
 	inventory *inventory.Inventory
-	viewerMu  *sync.RWMutex
+	viewerMu  *deadlock.RWMutex
 	viewers   map[ContainerViewer]struct{}
 }
 
 // NewChest creates a new initialised chest. The inventory is properly initialised.
 func NewChest() Chest {
 	c := Chest{
-		viewerMu: new(sync.RWMutex),
+		viewerMu: new(deadlock.RWMutex),
 		viewers:  make(map[ContainerViewer]struct{}, 1),
 	}
 
@@ -222,7 +222,7 @@ func (c Chest) pair(tx *world.Tx, pos, pairPos cube.Pos) (ch, pair Chest, ok boo
 	if !ok || c.Facing != pair.Facing || pair.paired && (pair.pairX != pos[0] || pair.pairZ != pos[2]) {
 		return c, pair, false
 	}
-	m := new(sync.RWMutex)
+	m := new(deadlock.RWMutex)
 	v := make(map[ContainerViewer]struct{})
 	left, right := c.inventory.Clone(nil), pair.inventory.Clone(nil)
 	if pos.Side(c.Facing.RotateRight().Face()) == pairPos {
@@ -283,7 +283,7 @@ func (c Chest) unpair(tx *world.Tx, pos cube.Pos) (ch, pair Chest, ok bool) {
 		}
 	})
 	c.paired, pair.paired = false, false
-	c.viewerMu, pair.viewerMu = new(sync.RWMutex), new(sync.RWMutex)
+	c.viewerMu, pair.viewerMu = new(deadlock.RWMutex), new(deadlock.RWMutex)
 	c.viewers, pair.viewers = make(map[ContainerViewer]struct{}, 1), make(map[ContainerViewer]struct{}, 1)
 	c.pairInv, pair.pairInv = nil, nil
 	return c, pair, true

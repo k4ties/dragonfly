@@ -11,6 +11,7 @@ import (
 	"github.com/df-mc/goleveldb/leveldb"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
+	"github.com/sasha-s/go-deadlock"
 	"iter"
 	"maps"
 	"math/rand/v2"
@@ -45,7 +46,7 @@ type World struct {
 	weather
 
 	tickFunc   func(*Tx)
-	tickFuncMu sync.Mutex
+	tickFuncMu deadlock.Mutex
 
 	closing chan struct{}
 	running sync.WaitGroup
@@ -68,7 +69,7 @@ type World struct {
 	scheduledUpdates *scheduledTickQueue
 	neighbourUpdates []neighbourUpdate
 
-	viewerMu sync.Mutex
+	viewerMu deadlock.Mutex
 	viewers  map[*Loader]Viewer
 }
 

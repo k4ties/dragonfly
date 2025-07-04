@@ -180,7 +180,9 @@ func (s *Session) HideEntity(e world.Entity) {
 		delete(s.entityRuntimeIDs, e.H())
 		delete(s.entities, id)
 	}
-	delete(s.hiddenEntities, e.H().UUID())
+	if _, hidden := s.hiddenEntities[e.H().UUID()]; hidden {
+		delete(s.hiddenEntities, e.H().UUID())
+	}
 	s.entityMutex.Unlock()
 	if !ok {
 		// The entity was already removed some other way. We don't need to send a packet.

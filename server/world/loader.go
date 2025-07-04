@@ -2,9 +2,9 @@ package world
 
 import (
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/sasha-s/go-deadlock"
 	"maps"
 	"math"
-	"sync"
 )
 
 // Loader implements the loading of the world. A loader can typically be moved around the world to load
@@ -15,7 +15,7 @@ type Loader struct {
 	w      *World
 	viewer Viewer
 
-	mu        sync.RWMutex
+	mu        deadlock.RWMutex
 	pos       ChunkPos
 	loadQueue []ChunkPos
 	loaded    map[ChunkPos]*Column

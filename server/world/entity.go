@@ -5,6 +5,7 @@ import (
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
+	"github.com/sasha-s/go-deadlock"
 	"io"
 	"maps"
 	"slices"
@@ -53,42 +54,29 @@ type EntityHandle struct {
 
 	Data EntityData
 
-	values   map[string]any
-	valuesMu sync.RWMutex
+	values sync.Map
 
 	// TODO Handler? Handle world change here?
 }
 
 // Value ...
-func (e *EntityHandle) Value(key string) (any, bool) {
-	e.valuesMu.RLock()
-	defer e.valuesMu.RUnlock()
-	val, ok := e.values[key]
-	return val, ok
+func (e *EntityHandle) Value(key any) (any, bool) {
+	return e.values.Load(key)
 }
 
 // SetValue ...
-func (e *EntityHandle) SetValue(key string, val any) {
-	e.valuesMu.Lock()
-	e.values[key] = val
-	e.valuesMu.Unlock()
+func (e *EntityHandle) SetValue(key, value any) {
+	e.values.Store(key, value)
 }
 
 // DeleteValue ...
-func (e *EntityHandle) DeleteValue(key string) {
-	e.valuesMu.Lock()
-	delete(e.values, key)
-	e.valuesMu.Unlock()
+func (e *EntityHandle) DeleteValue(key any) {
+	e.values.Delete(key)
 }
 
 // ClearValues clears all entity handle values.
 func (e *EntityHandle) ClearValues() {
-	e.valuesMu.Lock()
-	for key := range e.values {
-		delete(e.values, key)
-	}
-	e.values = nil
-	e.valuesMu.Unlock()
+	e.values.Clear()
 }
 
 // EntitySpawnOpts holds spawning related options for entities created.
@@ -117,7 +105,7 @@ func (opts EntitySpawnOpts) New(t EntityType, conf EntityConfig) *EntityHandle {
 		opts.ID = uuid.New()
 		clear(opts.ID[:8])
 	}
-	handle := &EntityHandle{id: opts.ID, t: t, cond: sync.NewCond(&sync.Mutex{}), worldless: &atomic.Bool{}, values: make(map[string]any)}
+	handle := &EntityHandle{id: opts.ID, t: t, cond: sync.NewCond(&deadlock.Mutex{}), worldless: &atomic.Bool{}}
 	handle.worldless.Store(true)
 	handle.Data.Pos, handle.Data.Rot, handle.Data.Vel = opts.Position, opts.Rotation, opts.Velocity
 	handle.Data.Name = opts.NameTag
@@ -136,7 +124,7 @@ func NewEntity(t EntityType, conf EntityConfig) *EntityHandle {
 // entityFromData reads an entity from the decoded NBT data passed and returns
 // an EntityHandle.
 func entityFromData(t EntityType, id int64, data map[string]any) *EntityHandle {
-	handle := &EntityHandle{t: t, cond: sync.NewCond(&sync.Mutex{}), worldless: &atomic.Bool{}, values: make(map[string]any)}
+	handle := &EntityHandle{t: t, cond: sync.NewCond(&deadlock.Mutex{}), worldless: &atomic.Bool{}}
 	binary.LittleEndian.PutUint64(handle.id[8:], uint64(id))
 	handle.decodeNBT(data)
 	t.DecodeNBT(data, &handle.Data)

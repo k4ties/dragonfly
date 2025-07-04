@@ -5,13 +5,13 @@ import (
 	"github.com/df-mc/dragonfly/server/player/form"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
-	"sync"
+	"github.com/sasha-s/go-deadlock"
 	"sync/atomic"
 )
 
 // ModalFormResponseHandler handles the ModalFormResponse packet.
 type ModalFormResponseHandler struct {
-	mu        sync.Mutex
+	mu        deadlock.Mutex
 	forms     map[uint32]form.Form
 	currentID atomic.Uint32
 }

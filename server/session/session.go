@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/player/debug"
 	"github.com/df-mc/dragonfly/server/player/hud"
+	"github.com/sasha-s/go-deadlock"
 	"io"
 	"log/slog"
 	"net"
@@ -33,6 +35,8 @@ import (
 // Session handles incoming packets from connections and sends outgoing packets by providing a thin layer
 // of abstraction over direct packets. A Session basically 'controls' an entity.
 type Session struct {
+	userHandler atomic.Pointer[UserHandler]
+
 	conf           Config
 	once, connOnce sync.Once
 
@@ -50,7 +54,7 @@ type Session struct {
 
 	teleportPos atomic.Pointer[mgl64.Vec3]
 
-	entityMutex sync.RWMutex
+	entityMutex deadlock.RWMutex
 	// currentEntityRuntimeID holds the runtime ID assigned to the last entity. It is incremented for every
 	// entity spawned to the session.
 	currentEntityRuntimeID uint64
@@ -83,16 +87,16 @@ type Session struct {
 
 	recipes map[uint32]recipe.Recipe
 
-	blobMu                sync.Mutex
+	blobMu                deadlock.Mutex
 	blobs                 map[uint64][]byte
 	openChunkTransactions []map[uint64]struct{}
 	invOpened             bool
 
-	hudMu      sync.RWMutex
+	hudMu      deadlock.RWMutex
 	hudUpdates map[hud.Element]bool
 	hiddenHud  map[hud.Element]struct{}
 
-	debugShapesMu     sync.RWMutex
+	debugShapesMu     deadlock.RWMutex
 	debugShapes       map[int]debug.Shape
 	debugShapesAdd    chan debug.Shape
 	debugShapesRemove chan int
@@ -379,8 +383,11 @@ func (s *Session) handlePackets() {
 		})
 	}()
 	for {
-		pk, err := s.conn.ReadPacket()
+		pk, err := s.ReadPacket()
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				continue
+			}
 			return
 		}
 
@@ -568,6 +575,12 @@ func (s *Session) writePacket(pk packet.Packet) {
 	if s == Nop {
 		return
 	}
+
+	ctx := event.C(s)
+	if s.UserHandler().HandleServerPacket(ctx, pk); ctx.Cancelled() {
+		return
+	}
+
 	select {
 	case s.outgoingPackets <- pk:
 	case <-s.closeBackground:
@@ -617,4 +630,31 @@ func (s *Session) IterateEntities(f func(runtimeID uint64, ent *world.EntityHand
 		}
 	}
 	s.entityMutex.RUnlock()
+}
+
+func (s *Session) Handle(h UserHandler) {
+	s.userHandler.Store(&h)
+}
+
+func (s *Session) UserHandler() UserHandler {
+	handler := s.userHandler.Load()
+	if handler == nil || *handler == nil {
+		var h UserHandler = NopUserHandler{}
+		handler = &h
+	}
+	return *handler
+}
+
+func (s *Session) ReadPacket() (packet.Packet, error) {
+	pk, err := s.conn.ReadPacket()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := event.C(s)
+	if s.UserHandler().HandleClientPacket(ctx, pk); ctx.Cancelled() {
+		return nil, context.Canceled
+	}
+
+	return pk, nil
 }

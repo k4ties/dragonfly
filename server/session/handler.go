@@ -1,6 +1,7 @@
 package session
 
 import (
+	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -11,3 +12,15 @@ type packetHandler interface {
 	// Handle returns an error if the packet was in any way invalid.
 	Handle(p packet.Packet, s *Session, tx *world.Tx, c Controllable) error
 }
+
+type Context = event.Context[*Session]
+
+type UserHandler interface {
+	HandleClientPacket(ctx *Context, pk packet.Packet)
+	HandleServerPacket(ctx *Context, pk packet.Packet)
+}
+
+type NopUserHandler struct{}
+
+func (NopUserHandler) HandleClientPacket(*Context, packet.Packet) {}
+func (NopUserHandler) HandleServerPacket(*Context, packet.Packet) {}
