@@ -385,7 +385,7 @@ func (s *Session) handlePackets() {
 	for {
 		pk, err := s.ReadPacket()
 		if err != nil {
-			if errors.Is(err, context.Canceled) {
+			if errors.Is(err, ErrPacketCanceled) {
 				continue
 			}
 			return
@@ -398,6 +398,8 @@ func (s *Session) handlePackets() {
 		}
 	}
 }
+
+var ErrPacketCanceled = errors.New("packet cancelled by user")
 
 // background performs background tasks of the Session. This includes chunk sending and automatic command updating.
 // background returns when the Session's connection is closed using CloseConnection.
@@ -653,7 +655,7 @@ func (s *Session) ReadPacket() (packet.Packet, error) {
 
 	ctx := event.C(s)
 	if s.UserHandler().HandleClientPacket(ctx, pk); ctx.Cancelled() {
-		return nil, context.Canceled
+		return nil, ErrPacketCanceled
 	}
 
 	return pk, nil
