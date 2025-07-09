@@ -16,11 +16,11 @@ type packetHandler interface {
 type Context = event.Context[*Session]
 
 type UserHandler interface {
-	HandleClientPacket(ctx *Context, pk packet.Packet)
+	HandleClientPacket(ctx *Context, pk packet.Packet, tx *world.Tx, c Controllable)
 	HandleServerPacket(ctx *Context, pk packet.Packet)
 }
 
 type NopUserHandler struct{}
 
-func (NopUserHandler) HandleClientPacket(*Context, packet.Packet) {}
-func (NopUserHandler) HandleServerPacket(*Context, packet.Packet) {}
+func (NopUserHandler) HandleClientPacket(*Context, packet.Packet, *world.Tx, Controllable) {}
+func (NopUserHandler) HandleServerPacket(*Context, packet.Packet)                          {}

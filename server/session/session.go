@@ -10,6 +10,7 @@ import (
 	"github.com/sasha-s/go-deadlock"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -212,7 +213,18 @@ func (conf Config) New(conn Conn) *Session {
 			case <-s.closeBackground:
 				return
 			case pk := <-s.outgoingPackets:
-				_ = conn.WritePacket(pk)
+				ctx := event.C(s)
+				if s.UserHandler().HandleServerPacket(ctx, pk); !ctx.Cancelled() {
+					_ = conn.WritePacket(pk)
+				}
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case <-s.closeBackground:
+				return
 			case first := <-s.incomingPackets:
 				var err error
 				s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
@@ -383,11 +395,8 @@ func (s *Session) handlePackets() {
 		})
 	}()
 	for {
-		pk, err := s.ReadPacket()
+		pk, err := s.conn.ReadPacket()
 		if err != nil {
-			if errors.Is(err, ErrPacketCanceled) {
-				continue
-			}
 			return
 		}
 
@@ -398,8 +407,6 @@ func (s *Session) handlePackets() {
 		}
 	}
 }
-
-var ErrPacketCanceled = errors.New("packet cancelled by user")
 
 // background performs background tasks of the Session. This includes chunk sending and automatic command updating.
 // background returns when the Session's connection is closed using CloseConnection.
@@ -518,6 +525,9 @@ func (s *Session) ChangingDimension() bool {
 // handlePacket handles an incoming packet, processing it accordingly. If the packet had invalid data or was
 // otherwise not valid in its context, an error is returned.
 func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (err error) {
+	if !s.handleClientPacket(tx, c, pk) {
+		return nil
+	}
 	handler, ok := s.handlers[pk.ID()]
 	if !ok {
 		s.conf.Log.Debug("unhandled packet", "packet", fmt.Sprintf("%T", pk), "data", fmt.Sprintf("%+v", pk)[1:])
@@ -578,11 +588,6 @@ func (s *Session) writePacket(pk packet.Packet) {
 		return
 	}
 
-	ctx := event.C(s)
-	if s.UserHandler().HandleServerPacket(ctx, pk); ctx.Cancelled() {
-		return
-	}
-
 	select {
 	case s.outgoingPackets <- pk:
 	case <-s.closeBackground:
@@ -626,12 +631,15 @@ func (s *Session) EntityHandle() *world.EntityHandle {
 
 func (s *Session) IterateEntities(f func(runtimeID uint64, ent *world.EntityHandle) bool) {
 	s.entityMutex.RLock()
-	for rid, ent := range s.entities {
+	entities := maps.Clone(s.entities)
+	defer clear(entities)
+	s.entityMutex.RUnlock()
+
+	for rid, ent := range entities {
 		if !f(rid, ent) {
-			break
+			return
 		}
 	}
-	s.entityMutex.RUnlock()
 }
 
 func (s *Session) Handle(h UserHandler) {
@@ -647,16 +655,8 @@ func (s *Session) UserHandler() UserHandler {
 	return *handler
 }
 
-func (s *Session) ReadPacket() (packet.Packet, error) {
-	pk, err := s.conn.ReadPacket()
-	if err != nil {
-		return nil, err
-	}
-
+func (s *Session) handleClientPacket(tx *world.Tx, c Controllable, pk packet.Packet) bool {
 	ctx := event.C(s)
-	if s.UserHandler().HandleClientPacket(ctx, pk); ctx.Cancelled() {
-		return nil, ErrPacketCanceled
-	}
-
-	return pk, nil
+	s.UserHandler().HandleClientPacket(ctx, pk, tx, c)
+	return !ctx.Cancelled()
 }

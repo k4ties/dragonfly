@@ -1684,7 +1684,9 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 	if critical {
 		dmg *= 1.5
 	}
-
+	if !p.handleAttackItem(e, i, offHand, &dmg) {
+		return false
+	}
 	ctx := event.C(p)
 	if p.Handler().HandleAttackEntity(ctx, e, &i, &dmg, &force, &height, &critical); ctx.Cancelled() {
 		return false
@@ -1730,6 +1732,38 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 	if durable, ok := i.Item().(item.Durable); ok {
 		p.SetHeldItems(p.damageItem(i, durable.DurabilityInfo().AttackDurability), left)
 	}
+	return true
+}
+
+func (p *Player) handleAttackItem(attacked world.Entity, mainHand, offhand item.Stack, dmg *float64) bool {
+	var (
+		attack item.AttackOnEntity
+		ok     bool
+	)
+
+	ctx := event.C[item.User](p)
+	if i := mainHand.Item(); !mainHand.Empty() && i != nil {
+		attack, ok = i.(item.AttackOnEntity)
+		if ok {
+			attack.AttackEntity(ctx, attacked, dmg, mainHand, p.tx)
+		}
+	}
+
+	if ctx.Cancelled() {
+		return false
+	}
+
+	if i := offhand.Item(); !mainHand.Empty() && i != nil {
+		attack, ok = i.(item.AttackOnEntity)
+		if ok {
+			attack.AttackEntity(ctx, attacked, dmg, mainHand, p.tx)
+		}
+	}
+
+	if ctx.Cancelled() {
+		return false
+	}
+
 	return true
 }
 
