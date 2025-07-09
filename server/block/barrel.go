@@ -9,8 +9,8 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/sound"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/sasha-s/go-deadlock"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -29,13 +29,13 @@ type Barrel struct {
 	CustomName string
 
 	inventory *inventory.Inventory
-	viewerMu  *sync.RWMutex
+	viewerMu  *deadlock.RWMutex
 	viewers   map[ContainerViewer]struct{}
 }
 
 // NewBarrel creates a new initialised barrel. The inventory is properly initialised.
 func NewBarrel() Barrel {
-	m := new(sync.RWMutex)
+	m := new(deadlock.RWMutex)
 	v := make(map[ContainerViewer]struct{}, 1)
 	return Barrel{
 		inventory: inventory.New(27, func(slot int, _, item item.Stack) {

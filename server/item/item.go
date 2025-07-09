@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/entity/effect"
+	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 	"image/color"
@@ -261,4 +262,10 @@ func boolByte(b bool) uint8 {
 		return 1
 	}
 	return 0
+}
+
+type UserContext = event.Context[User]
+
+type AttackOnEntity interface {
+	AttackEntity(ctx *UserContext, e world.Entity, dmg *float64, item Stack, tx *world.Tx)
 }

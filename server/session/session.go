@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/player/debug"
 	"github.com/df-mc/dragonfly/server/player/hud"
+	"github.com/sasha-s/go-deadlock"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -33,6 +36,8 @@ import (
 // Session handles incoming packets from connections and sends outgoing packets by providing a thin layer
 // of abstraction over direct packets. A Session basically 'controls' an entity.
 type Session struct {
+	userHandler atomic.Pointer[UserHandler]
+
 	conf           Config
 	once, connOnce sync.Once
 
@@ -50,7 +55,7 @@ type Session struct {
 
 	teleportPos atomic.Pointer[mgl64.Vec3]
 
-	entityMutex sync.RWMutex
+	entityMutex deadlock.RWMutex
 	// currentEntityRuntimeID holds the runtime ID assigned to the last entity. It is incremented for every
 	// entity spawned to the session.
 	currentEntityRuntimeID uint64
@@ -83,16 +88,16 @@ type Session struct {
 
 	recipes map[uint32]recipe.Recipe
 
-	blobMu                sync.Mutex
+	blobMu                deadlock.Mutex
 	blobs                 map[uint64][]byte
 	openChunkTransactions []map[uint64]struct{}
 	invOpened             bool
 
-	hudMu      sync.RWMutex
+	hudMu      deadlock.RWMutex
 	hudUpdates map[hud.Element]bool
 	hiddenHud  map[hud.Element]struct{}
 
-	debugShapesMu     sync.RWMutex
+	debugShapesMu     deadlock.RWMutex
 	debugShapes       map[int]debug.Shape
 	debugShapesAdd    chan debug.Shape
 	debugShapesRemove chan int
@@ -208,7 +213,18 @@ func (conf Config) New(conn Conn) *Session {
 			case <-s.closeBackground:
 				return
 			case pk := <-s.outgoingPackets:
-				_ = conn.WritePacket(pk)
+				ctx := event.C(s)
+				if s.UserHandler().HandleServerPacket(ctx, pk); !ctx.Cancelled() {
+					_ = conn.WritePacket(pk)
+				}
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case <-s.closeBackground:
+				return
 			case first := <-s.incomingPackets:
 				var err error
 				s.ent.ExecWorld(func(tx *world.Tx, e world.Entity) {
@@ -473,7 +489,7 @@ func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable
 	if !same {
 		s.changeDimension(int32(dim), false, c)
 	}
-	s.ViewEntityTeleport(c, c.Position())
+	s.ViewEntityTeleport(c, c.Position(), c.Rotation())
 	s.chunkLoader.ChangeWorld(tx, w)
 }
 
@@ -509,6 +525,9 @@ func (s *Session) ChangingDimension() bool {
 // handlePacket handles an incoming packet, processing it accordingly. If the packet had invalid data or was
 // otherwise not valid in its context, an error is returned.
 func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (err error) {
+	if !s.handleClientPacket(tx, c, pk) {
+		return nil
+	}
 	handler, ok := s.handlers[pk.ID()]
 	if !ok {
 		s.conf.Log.Debug("unhandled packet", "packet", fmt.Sprintf("%T", pk), "data", fmt.Sprintf("%+v", pk)[1:])
@@ -568,6 +587,7 @@ func (s *Session) writePacket(pk packet.Packet) {
 	if s == Nop {
 		return
 	}
+
 	select {
 	case s.outgoingPackets <- pk:
 	case <-s.closeBackground:
@@ -591,4 +611,52 @@ func (s *Session) sendAvailableEntities(w *world.World) {
 		panic("should never happen")
 	}
 	s.writePacket(&packet.AvailableActorIdentifiers{SerialisedEntityIdentifiers: serializedEntityData})
+}
+
+func (s *Session) WritePacket(pk packet.Packet) {
+	s.writePacket(pk)
+}
+
+func (s *Session) IdentityData() login.IdentityData {
+	return s.conn.IdentityData()
+}
+
+func (s *Session) Conn() Conn {
+	return s.conn
+}
+
+func (s *Session) EntityHandle() *world.EntityHandle {
+	return s.ent
+}
+
+func (s *Session) IterateEntities(f func(runtimeID uint64, ent *world.EntityHandle) bool) {
+	s.entityMutex.RLock()
+	entities := maps.Clone(s.entities)
+	defer clear(entities)
+	s.entityMutex.RUnlock()
+
+	for rid, ent := range entities {
+		if !f(rid, ent) {
+			return
+		}
+	}
+}
+
+func (s *Session) Handle(h UserHandler) {
+	s.userHandler.Store(&h)
+}
+
+func (s *Session) UserHandler() UserHandler {
+	handler := s.userHandler.Load()
+	if handler == nil || *handler == nil {
+		var h UserHandler = NopUserHandler{}
+		handler = &h
+	}
+	return *handler
+}
+
+func (s *Session) handleClientPacket(tx *world.Tx, c Controllable, pk packet.Packet) bool {
+	ctx := event.C(s)
+	s.UserHandler().HandleClientPacket(ctx, pk, tx, c)
+	return !ctx.Cancelled()
 }

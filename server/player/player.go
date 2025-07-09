@@ -575,6 +575,10 @@ func (p *Player) fall(distance float64) {
 // final damage dealt to the Player and if the Player was vulnerable to this
 // kind of damage.
 func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
+	return p.hurt(dmg, nil, src)
+}
+
+func (p *Player) hurt(dmg float64, attackItem *item.Stack, src world.DamageSource) (float64, bool) {
 	if _, ok := p.Effect(effect.FireResistance); (ok && src.Fire()) || p.Dead() || !p.GameMode().AllowsTakingDamage() || dmg < 0 {
 		return 0, false
 	}
@@ -590,7 +594,7 @@ func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
 
 	immunity := time.Second / 2
 	ctx := event.C(p)
-	if p.Handler().HandleHurt(ctx, &damageLeft, immune, &immunity, src); ctx.Cancelled() {
+	if p.Handler().HandleHurt(ctx, attackItem, &damageLeft, immune, &immunity, src); ctx.Cancelled() {
 		return 0, false
 	}
 	p.setAttackImmunity(immunity, totalDamage)
@@ -645,6 +649,7 @@ func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
 	if p.Dead() {
 		p.kill(src)
 	}
+
 	return totalDamage, true
 }
 
@@ -934,6 +939,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	if !p.Dead() || p.session() == session.Nop {
 		return
 	}
+	rot := p.Rotation()
 	// We can use the principle here that returning through a portal of a specific dimension inside that dimension will
 	// always bring us back to the overworld.
 	w := p.tx.World().PortalDestination(p.tx.World().Dimension())
@@ -950,7 +956,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	handle := p.tx.RemoveEntity(p)
 	w.Exec(func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
-		np.Teleport(pos)
+		np.Teleport(pos, rot)
 		np.session().SendRespawn(pos, p)
 		np.SetVisible()
 		if f != nil {
@@ -1662,16 +1668,8 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 		critical       = !p.Sprinting() && !p.Flying() && p.FallDistance() > 0 && !slowFalling && !blind
 	)
 
-	ctx := event.C(p)
-	if p.Handler().HandleAttackEntity(ctx, e, &force, &height, &critical); ctx.Cancelled() {
-		return false
-	}
-	p.SwingArm()
-
-	i, _ := p.HeldItems()
-	if !isLiving {
-		return false
-	}
+	i, offHand := p.HeldItems()
+	old := i
 
 	dmg := i.AttackDamage()
 	if strength, ok := p.Effect(effect.Strength); ok {
@@ -1685,6 +1683,22 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 	}
 	if critical {
 		dmg *= 1.5
+	}
+	if !p.handleAttackItem(e, i, offHand, &dmg) {
+		return false
+	}
+	ctx := event.C(p)
+	if p.Handler().HandleAttackEntity(ctx, e, &i, &dmg, &force, &height, &critical); ctx.Cancelled() {
+		return false
+	}
+	if !old.Equal(i) {
+		p.SetHeldItems(i, offHand)
+	}
+
+	p.SwingArm()
+
+	if !isLiving {
+		return false
 	}
 
 	n, vulnerable := living.Hurt(dmg, entity.AttackDamageSource{Attacker: p})
@@ -1718,6 +1732,38 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 	if durable, ok := i.Item().(item.Durable); ok {
 		p.SetHeldItems(p.damageItem(i, durable.DurabilityInfo().AttackDurability), left)
 	}
+	return true
+}
+
+func (p *Player) handleAttackItem(attacked world.Entity, mainHand, offhand item.Stack, dmg *float64) bool {
+	var (
+		attack item.AttackOnEntity
+		ok     bool
+	)
+
+	ctx := event.C[item.User](p)
+	if i := mainHand.Item(); !mainHand.Empty() && i != nil {
+		attack, ok = i.(item.AttackOnEntity)
+		if ok {
+			attack.AttackEntity(ctx, attacked, dmg, mainHand, p.tx)
+		}
+	}
+
+	if ctx.Cancelled() {
+		return false
+	}
+
+	if i := offhand.Item(); !mainHand.Empty() && i != nil {
+		attack, ok = i.(item.AttackOnEntity)
+		if ok {
+			attack.AttackEntity(ctx, attacked, dmg, mainHand, p.tx)
+		}
+	}
+
+	if ctx.Cancelled() {
+		return false
+	}
+
 	return true
 }
 
@@ -2052,19 +2098,19 @@ func (p *Player) PickBlock(pos cube.Pos) {
 
 // Teleport teleports the player to a target position in the world. Unlike Move, it immediately changes the
 // position of the player, rather than showing an animation.
-func (p *Player) Teleport(pos mgl64.Vec3) {
+func (p *Player) Teleport(pos mgl64.Vec3, rot cube.Rotation) {
 	ctx := event.C(p)
-	if p.Handler().HandleTeleport(ctx, pos); ctx.Cancelled() {
+	if p.Handler().HandleTeleport(ctx, pos, rot); ctx.Cancelled() {
 		return
 	}
-	p.teleport(pos)
+	p.teleport(pos, rot)
 }
 
 // teleport teleports the player to a target position in the world. It does not call the Handler of the
 // player.
-func (p *Player) teleport(pos mgl64.Vec3) {
+func (p *Player) teleport(pos mgl64.Vec3, rot cube.Rotation) {
 	for _, v := range p.viewers() {
-		v.ViewEntityTeleport(p, pos)
+		v.ViewEntityTeleport(p, pos, rot)
 	}
 	p.data.Pos = pos
 	p.data.Vel = mgl64.Vec3{}
@@ -2095,7 +2141,7 @@ func (p *Player) Move(deltaPos mgl64.Vec3, deltaYaw, deltaPitch float64) {
 		if p.session() != session.Nop && pos.ApproxEqual(p.Position()) {
 			// The position of the player was changed and the event cancelled. This means we still need to notify the
 			// player of this movement change.
-			p.teleport(pos)
+			p.teleport(pos, resRot)
 		}
 		return
 	}
@@ -2373,6 +2419,7 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 	if p.Dead() {
 		return
 	}
+	p.Handler().HandleTick(p, current)
 	if _, ok := p.tx.Liquid(cube.PosFromVec3(p.Position())); !ok {
 		p.StopSwimming()
 		if _, ok := p.Armour().Helmet().Item().(item.TurtleShell); ok {
@@ -3104,7 +3151,7 @@ func (p *Player) Handler() Handler {
 }
 
 // broadcastItems broadcasts the items held to viewers.
-func (p *Player) broadcastItems(int, item.Stack, item.Stack) {
+func (p *Player) broadcastItems(_ int, _, _ item.Stack) {
 	for _, viewer := range p.viewers() {
 		viewer.ViewEntityItems(p)
 	}
@@ -3156,4 +3203,12 @@ func (p *Player) resendBlock(pos cube.Pos) {
 // end, which is typically used for sending messages, popups and tips.
 func format(a []any) string {
 	return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintln(a...), "\n"), "\n")
+}
+
+func (p *Player) EntityData() *world.EntityData {
+	return p.data
+}
+
+func (p *Player) UI() *inventory.Inventory {
+	return p.ui
 }

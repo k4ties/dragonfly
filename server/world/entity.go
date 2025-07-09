@@ -5,6 +5,7 @@ import (
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
+	"github.com/sasha-s/go-deadlock"
 	"io"
 	"maps"
 	"slices"
@@ -51,9 +52,31 @@ type EntityHandle struct {
 	weakTxActive bool
 	w            *World
 
-	data EntityData
+	Data EntityData
+
+	values sync.Map
 
 	// TODO Handler? Handle world change here?
+}
+
+// Value ...
+func (e *EntityHandle) Value(key any) (any, bool) {
+	return e.values.Load(key)
+}
+
+// SetValue ...
+func (e *EntityHandle) SetValue(key, value any) {
+	e.values.Store(key, value)
+}
+
+// DeleteValue ...
+func (e *EntityHandle) DeleteValue(key any) {
+	e.values.Delete(key)
+}
+
+// ClearValues clears all entity handle values.
+func (e *EntityHandle) ClearValues() {
+	e.values.Clear()
 }
 
 // EntitySpawnOpts holds spawning related options for entities created.
@@ -82,11 +105,11 @@ func (opts EntitySpawnOpts) New(t EntityType, conf EntityConfig) *EntityHandle {
 		opts.ID = uuid.New()
 		clear(opts.ID[:8])
 	}
-	handle := &EntityHandle{id: opts.ID, t: t, cond: sync.NewCond(&sync.Mutex{}), worldless: &atomic.Bool{}}
+	handle := &EntityHandle{id: opts.ID, t: t, cond: sync.NewCond(&deadlock.Mutex{}), worldless: &atomic.Bool{}}
 	handle.worldless.Store(true)
-	handle.data.Pos, handle.data.Rot, handle.data.Vel = opts.Position, opts.Rotation, opts.Velocity
-	handle.data.Name = opts.NameTag
-	conf.Apply(&handle.data)
+	handle.Data.Pos, handle.Data.Rot, handle.Data.Vel = opts.Position, opts.Rotation, opts.Velocity
+	handle.Data.Name = opts.NameTag
+	conf.Apply(&handle.Data)
 	return handle
 }
 
@@ -101,10 +124,10 @@ func NewEntity(t EntityType, conf EntityConfig) *EntityHandle {
 // entityFromData reads an entity from the decoded NBT data passed and returns
 // an EntityHandle.
 func entityFromData(t EntityType, id int64, data map[string]any) *EntityHandle {
-	handle := &EntityHandle{t: t, cond: sync.NewCond(&sync.Mutex{}), worldless: &atomic.Bool{}}
+	handle := &EntityHandle{t: t, cond: sync.NewCond(&deadlock.Mutex{}), worldless: &atomic.Bool{}}
 	binary.LittleEndian.PutUint64(handle.id[8:], uint64(id))
 	handle.decodeNBT(data)
-	t.DecodeNBT(data, &handle.data)
+	t.DecodeNBT(data, &handle.Data)
 	return handle
 }
 
@@ -120,7 +143,7 @@ func (e *EntityHandle) Entity(tx *Tx) (Entity, bool) {
 	if e == nil || e.w != tx.World() {
 		return nil, false
 	}
-	return e.t.Open(tx, e, &e.data), true
+	return e.t.Open(tx, e, &e.Data), true
 }
 
 // mustEntity calls Entity but panics if the worlds do not match.
@@ -264,25 +287,25 @@ func (e *EntityHandle) setAndUnlockWorld(w *World) {
 // decodeNBT decodes the position, velocity, rotation, age, on-fire duration and
 // name tag of an entity.
 func (e *EntityHandle) decodeNBT(m map[string]any) {
-	e.data.Pos = readVec3(m, "Pos")
-	e.data.Vel = readVec3(m, "Motion")
-	e.data.Rot = readRotation(m)
-	e.data.Age = time.Duration(readInt16(m, "Age")) * (time.Second / 20)
-	e.data.FireDuration = time.Duration(readInt16(m, "Fire")) * time.Second / 20
-	e.data.Name, _ = m["NameTag"].(string)
+	e.Data.Pos = readVec3(m, "Pos")
+	e.Data.Vel = readVec3(m, "Motion")
+	e.Data.Rot = readRotation(m)
+	e.Data.Age = time.Duration(readInt16(m, "Age")) * (time.Second / 20)
+	e.Data.FireDuration = time.Duration(readInt16(m, "Fire")) * time.Second / 20
+	e.Data.Name, _ = m["NameTag"].(string)
 }
 
 // encodeNBT encodes the position, velocity, rotation, age, on-fire duration and
 // name tag of an entity.
 func (e *EntityHandle) encodeNBT() map[string]any {
 	return map[string]any{
-		"Pos":     []float32{float32(e.data.Pos[0]), float32(e.data.Pos[1]), float32(e.data.Pos[2])},
-		"Motion":  []float32{float32(e.data.Vel[0]), float32(e.data.Vel[1]), float32(e.data.Vel[2])},
-		"Yaw":     float32(e.data.Rot[0]),
-		"Pitch":   float32(e.data.Rot[1]),
-		"Fire":    int16(e.data.FireDuration.Seconds() * 20),
-		"Age":     int16(e.data.Age / (time.Second * 20)),
-		"NameTag": e.data.Name,
+		"Pos":     []float32{float32(e.Data.Pos[0]), float32(e.Data.Pos[1]), float32(e.Data.Pos[2])},
+		"Motion":  []float32{float32(e.Data.Vel[0]), float32(e.Data.Vel[1]), float32(e.Data.Vel[2])},
+		"Yaw":     float32(e.Data.Rot[0]),
+		"Pitch":   float32(e.Data.Rot[1]),
+		"Fire":    int16(e.Data.FireDuration.Seconds() * 20),
+		"Age":     int16(e.Data.Age / (time.Second * 20)),
+		"NameTag": e.Data.Name,
 	}
 }
 
@@ -309,6 +332,10 @@ type Entity interface {
 	// Rotation returns the yaw (horizontal rotation) and pitch (vertical
 	// rotation) of the entity in degrees.
 	Rotation() cube.Rotation
+	// Tx returns this entity world transaction.
+	Tx() *Tx
+	// EntityData returns pointer to this entity data.
+	EntityData() *EntityData
 }
 
 // TickerEntity represents an Entity that has a Tick method which should be called every time the Entity is
@@ -373,6 +400,7 @@ type EntityRegistryConfig struct {
 	Snowball           func(opts EntitySpawnOpts, owner Entity) *EntityHandle
 	SplashPotion       func(opts EntitySpawnOpts, t any, owner Entity) *EntityHandle
 	Lightning          func(opts EntitySpawnOpts) *EntityHandle
+	WindCharge         func(opts EntitySpawnOpts, owner Entity) *EntityHandle
 }
 
 // New creates an EntityRegistry using conf and the EntityTypes passed.

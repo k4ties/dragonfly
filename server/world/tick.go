@@ -11,7 +11,8 @@ import (
 
 // ticker implements World ticking methods.
 type ticker struct {
-	interval time.Duration
+	interval   time.Duration
+	additional *func() func(*Tx)
 }
 
 // tickLoop starts ticking the World 20 times every second, updating all
@@ -23,7 +24,14 @@ func (t ticker) tickLoop(w *World) {
 	for {
 		select {
 		case <-tc.C:
-			<-w.Exec(t.tick)
+			<-w.Exec(func(tx *Tx) {
+				t.tick(tx)
+				if t.additional != nil && *t.additional != nil {
+					if fn := (*t.additional)(); fn != nil {
+						fn(tx)
+					}
+				}
+			})
 		case <-w.closing:
 			// World is being closed: Stop ticking and get rid of a task.
 			w.running.Done()
@@ -187,7 +195,7 @@ func (t ticker) anyWithinDistance(pos ChunkPos, loaded []ChunkPos, r int32) bool
 func (t ticker) tickEntities(tx *Tx, tick int64) {
 	for handle, lastPos := range tx.World().entities {
 		e := handle.mustEntity(tx)
-		chunkPos := chunkPosFromVec3(handle.data.Pos)
+		chunkPos := chunkPosFromVec3(handle.Data.Pos)
 
 		c, ok := tx.World().chunks[chunkPos]
 		if !ok {
@@ -226,11 +234,11 @@ func (t ticker) tickEntities(tx *Tx, tick int64) {
 			}
 		}
 
-		if len(c.viewers) > 0 {
-			if te, ok := e.(TickerEntity); ok {
-				te.Tick(tx, tick)
-			}
+		//if len(c.viewers) > 0 {
+		if te, ok := e.(TickerEntity); ok {
+			te.Tick(tx, tick)
 		}
+		//}
 	}
 }
 

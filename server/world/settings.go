@@ -2,14 +2,14 @@ package world
 
 import (
 	"github.com/df-mc/dragonfly/server/block/cube"
-	"sync"
+	"github.com/sasha-s/go-deadlock"
 	"sync/atomic"
 )
 
 // Settings holds the settings of a World. These are typically saved to a level.dat file. It is safe to pass the same
 // Settings to multiple worlds created using New, in which case the Settings are synchronised between the worlds.
 type Settings struct {
-	sync.Mutex
+	deadlock.Mutex
 	ref atomic.Int32
 
 	// Name is the display name of the World.

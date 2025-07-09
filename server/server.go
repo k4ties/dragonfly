@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"fmt"
+	"github.com/sasha-s/go-deadlock"
 	"iter"
 	"maps"
 	"os"
@@ -56,7 +57,7 @@ type Server struct {
 	listeners []Listener
 	incoming  chan incoming
 
-	pmu sync.RWMutex
+	pmu deadlock.RWMutex
 	// p holds a map of all players currently connected to the server. When they
 	// leave, they are removed from the map.
 	p map[uuid.UUID]*onlinePlayer
@@ -351,7 +352,7 @@ func (srv *Server) listen(l Listener) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if msg, ok := srv.conf.Allower.Allow(c.RemoteAddr(), c.IdentityData(), c.ClientData()); !ok {
+			if msg, ok := srv.conf.Allower.Allow(c, c.RemoteAddr(), c.IdentityData(), c.ClientData()); !ok {
 				_ = c.WritePacket(&packet.Disconnect{HideDisconnectionScreen: msg == "", Message: msg})
 				_ = c.Close()
 				return

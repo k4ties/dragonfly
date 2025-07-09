@@ -11,6 +11,7 @@ import (
 	"github.com/df-mc/goleveldb/leveldb"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
+	"github.com/sasha-s/go-deadlock"
 	"iter"
 	"maps"
 	"math/rand/v2"
@@ -44,6 +45,9 @@ type World struct {
 
 	weather
 
+	tickFunc   func(*Tx)
+	tickFuncMu deadlock.Mutex
+
 	closing chan struct{}
 	running sync.WaitGroup
 
@@ -65,7 +69,7 @@ type World struct {
 	scheduledUpdates *scheduledTickQueue
 	neighbourUpdates []neighbourUpdate
 
-	viewerMu sync.Mutex
+	viewerMu deadlock.Mutex
 	viewers  map[*Loader]Viewer
 }
 
@@ -669,7 +673,7 @@ func (w *World) playSound(tx *Tx, pos mgl64.Vec3, s Sound) {
 // addEntity returns the Entity created by the EntityHandle.
 func (w *World) addEntity(tx *Tx, handle *EntityHandle) Entity {
 	handle.setAndUnlockWorld(w)
-	pos := chunkPosFromVec3(handle.data.Pos)
+	pos := chunkPosFromVec3(handle.Data.Pos)
 	w.entities[handle] = pos
 
 	c := w.chunk(pos)
@@ -680,6 +684,25 @@ func (w *World) addEntity(tx *Tx, handle *EntityHandle) Entity {
 		// Show the entity to all viewers in the chunk of the entity.
 		showEntity(e, v)
 	}
+	w.Handler().HandleEntitySpawn(tx, e)
+	return e
+}
+
+// addEntityWithViewers adds an EntityHandle to a World. The Entity will be visible
+// only to the provided viewers.
+func (w *World) addEntityWithViewers(tx *Tx, handle *EntityHandle, viewers []Viewer) Entity {
+	handle.setAndUnlockWorld(w)
+	pos := chunkPosFromVec3(handle.Data.Pos)
+	w.entities[handle] = pos
+
+	c := w.chunk(pos)
+	c.Entities, c.modified = append(c.Entities, handle), true
+
+	e := handle.mustEntity(tx)
+	for _, v := range viewers {
+		showEntity(e, v)
+	}
+
 	w.Handler().HandleEntitySpawn(tx, e)
 	return e
 }
@@ -722,7 +745,7 @@ func (w *World) entitiesWithin(tx *Tx, box cube.BBox) iter.Seq[Entity] {
 					continue
 				}
 				for _, handle := range c.Entities {
-					if !box.Vec3Within(handle.data.Pos) {
+					if !box.Vec3Within(handle.Data.Pos) {
 						continue
 					}
 					if !yield(handle.mustEntity(tx)) {
@@ -1191,11 +1214,6 @@ func (w *World) spreadLight(pos ChunkPos) {
 // autoSave runs until the world is running, saving and removing chunks that
 // are no longer in use.
 func (w *World) autoSave() {
-	save := &time.Ticker{C: make(<-chan time.Time)}
-	if w.conf.SaveInterval > 0 {
-		save = time.NewTicker(w.conf.SaveInterval)
-		defer save.Stop()
-	}
 	closeUnused := time.NewTicker(time.Minute * 2)
 	defer closeUnused.Stop()
 
@@ -1203,8 +1221,6 @@ func (w *World) autoSave() {
 		select {
 		case <-closeUnused.C:
 			<-w.Exec(w.closeUnusedChunks)
-		case <-save.C:
-			w.Save()
 		case <-w.closing:
 			w.running.Done()
 			return
@@ -1252,7 +1268,7 @@ func (w *World) columnTo(col *Column, pos ChunkPos) *chunk.Column {
 	}
 	for _, e := range col.Entities {
 		data := e.encodeNBT()
-		maps.Copy(data, e.t.EncodeNBT(&e.data))
+		maps.Copy(data, e.t.EncodeNBT(&e.Data))
 		data["identifier"] = e.t.EncodeEntity()
 		c.Entities = append(c.Entities, chunk.Entity{ID: int64(binary.LittleEndian.Uint64(e.id[8:])), Data: data})
 	}
@@ -1307,4 +1323,16 @@ func (w *World) columnFrom(c *chunk.Column, _ ChunkPos) *Column {
 	}
 	w.scheduledUpdates.add(scheduled)
 	return col
+}
+
+func (w *World) getTickFunc() func(*Tx) {
+	w.tickFuncMu.Lock()
+	defer w.tickFuncMu.Unlock()
+	return w.tickFunc
+}
+
+func (w *World) UpdateTickFunc(f func(*Tx)) {
+	w.tickFuncMu.Lock()
+	w.tickFunc = f
+	w.tickFuncMu.Unlock()
 }
