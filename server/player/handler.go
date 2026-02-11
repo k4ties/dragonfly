@@ -6,6 +6,7 @@ import (
 
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/cmd"
+	"github.com/df-mc/dragonfly/server/entity"
 	"github.com/df-mc/dragonfly/server/event"
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/player/skin"
@@ -25,7 +26,7 @@ type Handler interface {
 	// HandleJump handles the player jumping.
 	HandleJump(p *Player)
 	// HandleTeleport handles the teleportation of a player. ctx.Cancel() may be called to cancel it.
-	HandleTeleport(ctx *Context, pos mgl64.Vec3)
+	HandleTeleport(ctx *Context, pos mgl64.Vec3, rot *cube.Rotation, cause entity.TeleportCause)
 	// HandleChangeWorld handles when the player is added to a new world. before may be nil.
 	HandleChangeWorld(p *Player, before, after *world.World)
 	// HandleToggleSprint handles when the player starts or stops sprinting.
@@ -163,40 +164,40 @@ type NopHandler struct{}
 // Compile time check to make sure NopHandler implements Handler.
 var _ Handler = NopHandler{}
 
-func (NopHandler) HandleItemDrop(*Context, item.Stack)                                     {}
-func (NopHandler) HandleHeldSlotChange(*Context, int, int)                                 {}
-func (NopHandler) HandleMove(*Context, mgl64.Vec3, cube.Rotation)                          {}
-func (NopHandler) HandleJump(*Player)                                                      {}
-func (NopHandler) HandleTeleport(*Context, mgl64.Vec3)                                     {}
-func (NopHandler) HandleChangeWorld(*Player, *world.World, *world.World)                   {}
-func (NopHandler) HandleToggleSprint(*Context, bool)                                       {}
-func (NopHandler) HandleToggleSneak(*Context, bool)                                        {}
-func (NopHandler) HandleCommandExecution(*Context, cmd.Command, []string)                  {}
-func (NopHandler) HandleTransfer(*Context, *net.UDPAddr)                                   {}
-func (NopHandler) HandleChat(*Context, *string)                                            {}
-func (NopHandler) HandleSkinChange(*Context, *skin.Skin)                                   {}
-func (NopHandler) HandleFireExtinguish(*Context, cube.Pos)                                 {}
-func (NopHandler) HandleStartBreak(*Context, cube.Pos)                                     {}
-func (NopHandler) HandleBlockBreak(*Context, cube.Pos, *[]item.Stack, *int)                {}
-func (NopHandler) HandleBlockPlace(*Context, cube.Pos, world.Block)                        {}
-func (NopHandler) HandleBlockPick(*Context, cube.Pos, world.Block)                         {}
-func (NopHandler) HandleSignEdit(*Context, cube.Pos, bool, string, string)                 {}
-func (NopHandler) HandleSleep(*Context, *bool)                                             {}
-func (NopHandler) HandleLecternPageTurn(*Context, cube.Pos, int, *int)                     {}
-func (NopHandler) HandleItemPickup(*Context, *item.Stack)                                  {}
-func (NopHandler) HandleItemUse(*Context)                                                  {}
-func (NopHandler) HandleItemUseOnBlock(*Context, cube.Pos, cube.Face, mgl64.Vec3)          {}
-func (NopHandler) HandleItemUseOnEntity(*Context, world.Entity)                            {}
-func (NopHandler) HandleItemRelease(ctx *Context, item item.Stack, dur time.Duration)      {}
-func (NopHandler) HandleItemConsume(*Context, item.Stack)                                  {}
-func (NopHandler) HandleItemDamage(*Context, item.Stack, *int)                             {}
-func (NopHandler) HandleAttackEntity(*Context, world.Entity, *float64, *float64, *bool)    {}
-func (NopHandler) HandleExperienceGain(*Context, *int)                                     {}
-func (NopHandler) HandlePunchAir(*Context)                                                 {}
-func (NopHandler) HandleHurt(*Context, *float64, bool, *time.Duration, world.DamageSource) {}
-func (NopHandler) HandleHeal(*Context, *float64, world.HealingSource)                      {}
-func (NopHandler) HandleFoodLoss(*Context, int, *int)                                      {}
-func (NopHandler) HandleDeath(*Player, world.DamageSource, *bool)                          {}
-func (NopHandler) HandleRespawn(*Player, *mgl64.Vec3, **world.World)                       {}
-func (NopHandler) HandleQuit(*Player)                                                      {}
-func (NopHandler) HandleDiagnostics(*Player, session.Diagnostics)                          {}
+func (NopHandler) HandleItemDrop(*Context, item.Stack)                                       {}
+func (NopHandler) HandleHeldSlotChange(*Context, int, int)                                   {}
+func (NopHandler) HandleMove(*Context, mgl64.Vec3, cube.Rotation)                            {}
+func (NopHandler) HandleJump(*Player)                                                        {}
+func (NopHandler) HandleTeleport(*Context, mgl64.Vec3, *cube.Rotation, entity.TeleportCause) {}
+func (NopHandler) HandleChangeWorld(*Player, *world.World, *world.World)                     {}
+func (NopHandler) HandleToggleSprint(*Context, bool)                                         {}
+func (NopHandler) HandleToggleSneak(*Context, bool)                                          {}
+func (NopHandler) HandleCommandExecution(*Context, cmd.Command, []string)                    {}
+func (NopHandler) HandleTransfer(*Context, *net.UDPAddr)                                     {}
+func (NopHandler) HandleChat(*Context, *string)                                              {}
+func (NopHandler) HandleSkinChange(*Context, *skin.Skin)                                     {}
+func (NopHandler) HandleFireExtinguish(*Context, cube.Pos)                                   {}
+func (NopHandler) HandleStartBreak(*Context, cube.Pos)                                       {}
+func (NopHandler) HandleBlockBreak(*Context, cube.Pos, *[]item.Stack, *int)                  {}
+func (NopHandler) HandleBlockPlace(*Context, cube.Pos, world.Block)                          {}
+func (NopHandler) HandleBlockPick(*Context, cube.Pos, world.Block)                           {}
+func (NopHandler) HandleSignEdit(*Context, cube.Pos, bool, string, string)                   {}
+func (NopHandler) HandleSleep(*Context, *bool)                                               {}
+func (NopHandler) HandleLecternPageTurn(*Context, cube.Pos, int, *int)                       {}
+func (NopHandler) HandleItemPickup(*Context, *item.Stack)                                    {}
+func (NopHandler) HandleItemUse(*Context)                                                    {}
+func (NopHandler) HandleItemUseOnBlock(*Context, cube.Pos, cube.Face, mgl64.Vec3)            {}
+func (NopHandler) HandleItemUseOnEntity(*Context, world.Entity)                              {}
+func (NopHandler) HandleItemRelease(ctx *Context, item item.Stack, dur time.Duration)        {}
+func (NopHandler) HandleItemConsume(*Context, item.Stack)                                    {}
+func (NopHandler) HandleItemDamage(*Context, item.Stack, *int)                               {}
+func (NopHandler) HandleAttackEntity(*Context, world.Entity, *float64, *float64, *bool)      {}
+func (NopHandler) HandleExperienceGain(*Context, *int)                                       {}
+func (NopHandler) HandlePunchAir(*Context)                                                   {}
+func (NopHandler) HandleHurt(*Context, *float64, bool, *time.Duration, world.DamageSource)   {}
+func (NopHandler) HandleHeal(*Context, *float64, world.HealingSource)                        {}
+func (NopHandler) HandleFoodLoss(*Context, int, *int)                                        {}
+func (NopHandler) HandleDeath(*Player, world.DamageSource, *bool)                            {}
+func (NopHandler) HandleRespawn(*Player, *mgl64.Vec3, **world.World)                         {}
+func (NopHandler) HandleQuit(*Player)                                                        {}
+func (NopHandler) HandleDiagnostics(*Player, session.Diagnostics)                            {}

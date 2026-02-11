@@ -1335,3 +1335,20 @@ func (w *World) columnFrom(c *chunk.Column, _ ChunkPos) *Column {
 	w.scheduledUpdates.add(scheduled)
 	return col
 }
+
+// addEntityWithViewers ...
+func (w *World) addEntityWithViewers(tx *Tx, handle *EntityHandle, viewers []Viewer) Entity {
+	handle.setAndUnlockWorld(w)
+	pos := chunkPosFromVec3(handle.data.Pos)
+	w.entities[handle] = pos
+
+	c := w.chunk(pos)
+	c.Entities, c.modified = append(c.Entities, handle), true
+
+	e := handle.mustEntity(tx)
+	for _, v := range viewers {
+		v.ViewEntity(e)
+	}
+	w.Handler().HandleEntitySpawn(tx, e)
+	return e
+}

@@ -1,6 +1,11 @@
 package entity
 
 import (
+	"iter"
+	"math"
+	"math/rand/v2"
+	"time"
+
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/block/cube/trace"
@@ -9,10 +14,6 @@ import (
 	"github.com/df-mc/dragonfly/server/item/potion"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
-	"iter"
-	"math"
-	"math/rand/v2"
-	"time"
 )
 
 // ProjectileBehaviourConfig allows the configuration of projectiles. Calling
@@ -80,6 +81,9 @@ type ProjectileBehaviourConfig struct {
 	// CollisionPosition specifies the position that the projectile is stuck
 	// in. If non-empty, the entity will not move.
 	CollisionPosition cube.Pos
+	// Intersect is optional function used to allow projectile to intersect
+	// with entity.
+	Intersect ProjectileIntersect
 }
 
 func (conf ProjectileBehaviourConfig) Apply(data *world.EntityData) {
@@ -91,6 +95,9 @@ func (conf ProjectileBehaviourConfig) Apply(data *world.EntityData) {
 func (conf ProjectileBehaviourConfig) New() *ProjectileBehaviour {
 	if conf.ParticleCount == 0 && conf.Particle != nil {
 		conf.ParticleCount = 1
+	}
+	if conf.Intersect == nil {
+		conf.Intersect = func(Living, *world.EntityHandle) bool { return true }
 	}
 	return &ProjectileBehaviour{conf: conf, collided: conf.CollisionPosition != cube.Pos{}, collisionPos: conf.CollisionPosition, mc: &MovementComputer{
 		Gravity:           conf.Gravity,
@@ -329,8 +336,11 @@ func (lt *ProjectileBehaviour) ignores(e *Ent) trace.EntityFilter {
 		return func(yield func(world.Entity) bool) {
 			for other := range seq {
 				g, ok := other.(interface{ GameMode() world.GameMode })
-				_, living := other.(Living)
+				l, living := other.(Living)
 				if (ok && !g.GameMode().HasCollision()) || e.H() == other.H() || !living || (e.data.Age < time.Second/4 && lt.conf.Owner == other.H()) {
+					continue
+				}
+				if living && !lt.conf.Intersect(l, lt.Owner()) {
 					continue
 				}
 				if !yield(other) {

@@ -4,14 +4,15 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-	"github.com/df-mc/dragonfly/server/world/chunk"
-	"github.com/sandertv/gophertunnel/minecraft/nbt"
 	"maps"
 	"math"
 	"slices"
 	"sort"
 	"strings"
 	"unsafe"
+
+	"github.com/df-mc/dragonfly/server/world/chunk"
+	"github.com/sandertv/gophertunnel/minecraft/nbt"
 )
 
 var (

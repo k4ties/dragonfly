@@ -45,3 +45,12 @@ Project to improve its visibility.
 Contributions are very welcome! Issues, pull requests and feature requests are highly appreciated. Opening a pull
 request? Consider joining our [Discord server](https://discord.gg/U4kFWHhTNR) to discuss your changes! Also have a read through the
 [CONTRIBUTING.md](https://github.com/df-mc/dragonfly/blob/master/.github/CONTRIBUTING.md) for more info.
+
+---
+# What is changed in this fork?
+
+- [x] Allowed to access `session.Conn` in `server.Allower`
+- [x] Added teleport with rotation (method accepts rotation)
+- [x] Added teleport cause (`entity.TeleportCause`)
+- [x] Added projectile intersect allower (`entity.ProjectileIntersect`)
+- [ ] Remove light, as it takes too much resources while not being vital

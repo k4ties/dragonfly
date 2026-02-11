@@ -1,8 +1,8 @@
 package server
 
 import (
+	"github.com/df-mc/dragonfly/server/session"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
-	"net"
 )
 
 // Allower may be implemented to specifically allow or disallow players from
@@ -15,13 +15,13 @@ type Allower interface {
 	// the disconnect message. WARNING: Use the client data at your own risk, it
 	// cannot be trusted because it can be freely changed by the player
 	// connecting.
-	Allow(addr net.Addr, d login.IdentityData, c login.ClientData) (string, bool)
+	Allow(conn session.Conn, d login.IdentityData, c login.ClientData) (string, bool)
 }
 
 // allower is the standard Allower implementation. It accepts all connections.
 type allower struct{}
 
 // Allow always returns true.
-func (allower) Allow(net.Addr, login.IdentityData, login.ClientData) (string, bool) {
+func (allower) Allow(session.Conn, login.IdentityData, login.ClientData) (string, bool) {
 	return "", true
 }

@@ -227,6 +227,11 @@ func (tx *Tx) Viewers(pos mgl64.Vec3) []Viewer {
 	return tx.World().viewersOf(pos)
 }
 
+// AddEntityWithViewers ...
+func (tx *Tx) AddEntityWithViewers(handle *EntityHandle, viewers []Viewer) Entity {
+	return tx.World().addEntityWithViewers(tx, handle, viewers)
+}
+
 // Sleepers returns an iterator that yields all sleeping entities currently added to the World.
 func (tx *Tx) Sleepers() iter.Seq[Sleeper] {
 	ent := tx.Entities()
