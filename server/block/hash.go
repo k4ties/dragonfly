@@ -116,6 +116,7 @@ const (
 	hashLitPumpkin
 	hashLog
 	hashLoom
+	hashMagma
 	hashMelon
 	hashMelonSeeds
 	hashMossCarpet
@@ -180,6 +181,7 @@ const (
 	hashStone
 	hashStoneBricks
 	hashStonecutter
+	hashString
 	hashSugarCane
 	hashTNT
 	hashTerracotta
@@ -652,6 +654,10 @@ func (l Loom) Hash() (uint64, uint64) {
 	return hashLoom, uint64(l.Facing)
 }
 
+func (Magma) Hash() (uint64, uint64) {
+	return hashMagma, 0
+}
+
 func (Melon) Hash() (uint64, uint64) {
 	return hashMelon, 0
 }
@@ -906,6 +912,10 @@ func (s StoneBricks) Hash() (uint64, uint64) {
 
 func (s Stonecutter) Hash() (uint64, uint64) {
 	return hashStonecutter, uint64(s.Facing)
+}
+
+func (s String) Hash() (uint64, uint64) {
+	return hashString, uint64(boolByte(s.Attached)) | uint64(boolByte(s.Disarmed))<<1 | uint64(boolByte(s.Powered))<<2 | uint64(boolByte(s.Suspended))<<3
 }
 
 func (c SugarCane) Hash() (uint64, uint64) {
